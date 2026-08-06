@@ -30134,6 +30134,9 @@ public class ChatActivity extends BaseFragment implements
             return;
         }
 
+        // Screen time tracking: record when this chat becomes visible
+        org.telegram.messenger.ScreenTimeTracker.getInstance().onChatResumed(dialog_id);
+
         checkShowBlur(false);
         activityResumeTime = System.currentTimeMillis();
         if (openImport && getSendMessagesHelper().getImportingHistory(dialog_id) != null) {
@@ -30346,6 +30349,8 @@ public class ChatActivity extends BaseFragment implements
     @Override
     public void onPause() {
         super.onPause();
+        // Screen time tracking: flush accumulated time for this chat
+        org.telegram.messenger.ScreenTimeTracker.getInstance().onChatPaused();
         scrolling = false;
         if (scrimPopupWindow != null) {
             scrimPopupWindow.setPauseNotifications(false);
