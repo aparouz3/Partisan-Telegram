@@ -30135,7 +30135,19 @@ public class ChatActivity extends BaseFragment implements
         }
 
         // Screen time tracking: record when this chat becomes visible
-        org.telegram.messenger.ScreenTimeTracker.getInstance().onChatResumed(dialog_id);
+        org.telegram.messenger.ScreenTimeTracker tracker = org.telegram.messenger.ScreenTimeTracker.getInstance();
+        tracker.onChatResumed(dialog_id);
+        // Set up listener for in-app limit notification
+        tracker.setLimitReachedListener((reachedDialogId, limitMs) -> {
+            if (reachedDialogId == dialog_id && getParentActivity() != null) {
+                org.telegram.ui.Components.Bulletin.SimpleLayout layout = new org.telegram.ui.Components.Bulletin.SimpleLayout(getParentActivity(), getResourceProvider());
+                layout.imageView.setImageResource(org.telegram.messenger.R.drawable.msg_permissions);
+                layout.textView.setText("Screen time limit reached for this chat (" + org.telegram.messenger.ScreenTimeTracker.formatDuration(limitMs) + ")");
+                org.telegram.ui.Components.Bulletin.make(this, layout, 5000).show();
+            }
+        });
+        // Initial check in case limit already reached
+        tracker.checkLimitLive(dialog_id);
 
         checkShowBlur(false);
         activityResumeTime = System.currentTimeMillis();
