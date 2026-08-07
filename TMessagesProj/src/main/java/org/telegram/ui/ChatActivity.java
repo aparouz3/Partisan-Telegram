@@ -4149,7 +4149,7 @@ public class ChatActivity extends BaseFragment implements
                     org.telegram.ui.Components.Bulletin.SimpleLayout layout = new org.telegram.ui.Components.Bulletin.SimpleLayout(getParentActivity(), getResourceProvider());
                     layout.imageView.setImageResource(org.telegram.messenger.R.drawable.msg_permissions);
                     layout.textView.setText(nowVisible ? "Screen time timer visible" : "Screen time timer hidden");
-                    org.telegram.ui.Components.Bulletin.make(this, layout, 2000).show();
+                    org.telegram.ui.Components.Bulletin.make(ChatActivity.this, layout, 2000).show();
                 } else if (id == translate) {
                     getMessagesController().getTranslateController().setHideTranslateDialog(getDialogId(), false, true);
                     if (!getMessagesController().getTranslateController().toggleTranslatingDialog(getDialogId(), true)) {

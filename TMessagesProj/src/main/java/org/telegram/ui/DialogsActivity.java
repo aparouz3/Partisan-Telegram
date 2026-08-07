@@ -522,12 +522,16 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private final Runnable screenTimeDialogsRunnable = new Runnable() {
         @Override
         public void run() {
-            if (viewPages != null && listView != null) {
-                int count = listView.getChildCount();
-                for (int i = 0; i < count; i++) {
-                    View child = listView.getChildAt(i);
-                    if (child instanceof org.telegram.ui.Cells.DialogCell) {
-                        child.invalidate();
+            if (viewPages != null) {
+                for (ViewPage page : viewPages) {
+                    if (page.listView != null) {
+                        int count = page.listView.getChildCount();
+                        for (int i = 0; i < count; i++) {
+                            View child = page.listView.getChildAt(i);
+                            if (child instanceof org.telegram.ui.Cells.DialogCell) {
+                                child.invalidate();
+                            }
+                        }
                     }
                 }
             }
