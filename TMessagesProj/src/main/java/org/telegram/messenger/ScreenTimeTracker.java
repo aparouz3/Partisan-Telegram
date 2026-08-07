@@ -4,6 +4,7 @@
  * Stores elapsed milliseconds per dialog_id per day in SharedPreferences.
  * Supports per-chat time limits with in-app notification when reached.
  * Also tracks hourly distribution (which hour of the day time is spent).
+ * Supports per-chat live timer visibility toggle.
  */
 package org.telegram.messenger;
 
@@ -24,6 +25,7 @@ public class ScreenTimeTracker {
     private static ScreenTimeTracker instance;
     private final SharedPreferences prefs;
     private final SharedPreferences limitPrefs;
+    private final SharedPreferences timerPrefs;
 
     private long currentDialogId = 0;
     private long currentStartTime = 0;
@@ -39,6 +41,7 @@ public class ScreenTimeTracker {
     private ScreenTimeTracker() {
         prefs = ApplicationLoader.applicationContext.getSharedPreferences("screentime", Context.MODE_PRIVATE);
         limitPrefs = ApplicationLoader.applicationContext.getSharedPreferences("screentime_limits", Context.MODE_PRIVATE);
+        timerPrefs = ApplicationLoader.applicationContext.getSharedPreferences("screentime_timer", Context.MODE_PRIVATE);
     }
 
     public static synchronized ScreenTimeTracker getInstance() {
@@ -84,6 +87,7 @@ public class ScreenTimeTracker {
             if (elapsed > 0 && elapsed < 86400000L) {
                 String key = chatDayKey(currentDialogId);
                 long existing = prefs.getLong(key, 0);
+                // BUG FIX: do NOT cap at limit — keep counting! The limit is just for notification
                 long newTotal = existing + elapsed;
                 prefs.edit().putLong(key, newTotal).apply();
 
@@ -93,29 +97,36 @@ public class ScreenTimeTracker {
                 checkLimit(currentDialogId, newTotal);
             }
         }
-        currentStartTime = 0;
+        currentStartTime = System.currentTimeMillis();
+    }
+
+    /**
+     * Get the live elapsed time for the current chat (including un-flushed time).
+     */
+    public long getLiveChatTime(long dialogId) {
+        long base = prefs.getLong(chatDayKey(dialogId), 0);
+        if (tracking && currentDialogId == dialogId && currentStartTime > 0) {
+            base += (System.currentTimeMillis() - currentStartTime);
+        }
+        return base;
     }
 
     /**
      * Record time across hourly buckets. Handles sessions spanning multiple hours.
      */
     private void recordHourly(long dialogId, long start, long end, long elapsed) {
-        // Get the start hour and end hour
         int startHour = Integer.parseInt(new SimpleDateFormat("HH", Locale.US).format(new Date(start)));
         int endHour = Integer.parseInt(new SimpleDateFormat("HH", Locale.US).format(new Date(end)));
 
         SharedPreferences.Editor editor = prefs.edit();
         if (startHour == endHour) {
-            // Simple case: entire session in one hour bucket
             editor.putLong(hourKey(dialogId, startHour), prefs.getLong(hourKey(dialogId, startHour), 0) + elapsed);
             editor.putLong(hourTotalKey(startHour), prefs.getLong(hourTotalKey(startHour), 0) + elapsed);
         } else {
-            // Session spans multiple hours — distribute proportionally
             long remaining = elapsed;
             long cur = start;
             while (remaining > 0 && cur < end) {
                 int hour = Integer.parseInt(new SimpleDateFormat("HH", Locale.US).format(new Date(cur)));
-                // End of this hour bucket
                 long hourEnd = (cur / 3600000L + 1) * 3600000L;
                 long chunk = Math.min(remaining, hourEnd - cur);
                 if (chunk > 0) {
@@ -144,7 +155,7 @@ public class ScreenTimeTracker {
     public boolean checkLimitLive(long dialogId) {
         long limit = getLimit(dialogId);
         if (limit <= 0) return false;
-        long total = getChatTimeToday(dialogId);
+        long total = getLiveChatTime(dialogId);
         if (total >= limit && !alreadyAlerted.contains(dialogId)) {
             alreadyAlerted.add(dialogId);
             if (limitListener != null) {
@@ -175,6 +186,22 @@ public class ScreenTimeTracker {
 
     public void removeLimit(long dialogId) {
         limitPrefs.edit().remove(String.valueOf(dialogId)).apply();
+    }
+
+    // ===== Timer visibility =====
+
+    public void setTimerVisible(long dialogId, boolean visible) {
+        timerPrefs.edit().putBoolean(String.valueOf(dialogId), visible).apply();
+    }
+
+    public boolean isTimerVisible(long dialogId) {
+        return timerPrefs.getBoolean(String.valueOf(dialogId), true);
+    }
+
+    public boolean toggleTimerVisible(long dialogId) {
+        boolean newVal = !isTimerVisible(dialogId);
+        setTimerVisible(dialogId, newVal);
+        return newVal;
     }
 
     // ===== Listener =====
@@ -237,37 +264,6 @@ public class ScreenTimeTracker {
     }
 
     /**
-     * Returns per-chat hourly breakdown: List of [dialogId, 24-hour-array].
-     */
-    public List<Object[]> getChatHourlyBreakdown() {
-        flushCurrent();
-        String prefix = todayKey() + "_h";
-        java.util.Map<Long, long[]> map = new java.util.HashMap<>();
-        for (String key : prefs.getAll().keySet()) {
-            if (key.startsWith(prefix)) {
-                // format: yyyyMMdd_hH_dialogId
-                String rest = key.substring(prefix.length());
-                int us = rest.indexOf('_', 1);
-                if (us < 0) continue;
-                try {
-                    int hour = Integer.parseInt(rest.substring(0, us));
-                    long did = Long.parseLong(rest.substring(us + 1));
-                    long ms = prefs.getLong(key, 0);
-                    if (!map.containsKey(did)) {
-                        map.put(did, new long[24]);
-                    }
-                    map.get(did)[hour] += ms;
-                } catch (Exception ignored) {}
-            }
-        }
-        List<Object[]> result = new ArrayList<>();
-        for (java.util.Map.Entry<Long, long[]> e : map.entrySet()) {
-            result.add(new Object[]{e.getKey(), e.getValue()});
-        }
-        return result;
-    }
-
-    /**
      * For box plot: returns [min, Q1, median, Q3, max] in ms across active hours.
      */
     public long[] getHourlyBoxPlot() {
@@ -299,6 +295,23 @@ public class ScreenTimeTracker {
             return hours + "h " + minutes + "m";
         } else if (minutes > 0) {
             return minutes + "m " + seconds + "s";
+        } else {
+            return seconds + "s";
+        }
+    }
+
+    /**
+     * Short format for inline display: "1h 5m" or "5m" or "30s"
+     */
+    public static String formatDurationShort(long ms) {
+        long totalSeconds = ms / 1000;
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+        if (hours > 0) {
+            return hours + "h " + minutes + "m";
+        } else if (minutes > 0) {
+            return minutes + "m";
         } else {
             return seconds + "s";
         }

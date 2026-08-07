@@ -517,6 +517,23 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private float contactsAlpha = 1f;
     private ValueAnimator contactsAlphaAnimator;
     private ViewPage[] viewPages;
+
+    // Screen time live timer — invalidate dialog cells every second to update timer text
+    private final Runnable screenTimeDialogsRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (viewPages != null && listView != null) {
+                int count = listView.getChildCount();
+                for (int i = 0; i < count; i++) {
+                    View child = listView.getChildAt(i);
+                    if (child instanceof org.telegram.ui.Cells.DialogCell) {
+                        child.invalidate();
+                    }
+                }
+            }
+            AndroidUtilities.runOnUIThread(this, 1000);
+        }
+    };
     private ActionBarMenuItem passcodeItem;
     private ActionBarMenuItem downloadsItem;
     private DownloadProgressIcon downloadProgressIcon;
@@ -7067,6 +7084,8 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     @Override
     public void onResume() {
         super.onResume();
+        // Screen time live timer — refresh dialog cells every second
+        AndroidUtilities.runOnUIThread(screenTimeDialogsRunnable, 1000);
         if (dialogStoriesCell != null) {
             dialogStoriesCell.onResume();
         }
@@ -7441,6 +7460,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     @Override
     public void onPause() {
         super.onPause();
+        AndroidUtilities.cancelRunOnUIThread(screenTimeDialogsRunnable);
         if (storiesBulletin != null) {
             storiesBulletin.hide();
             storiesBulletin = null;

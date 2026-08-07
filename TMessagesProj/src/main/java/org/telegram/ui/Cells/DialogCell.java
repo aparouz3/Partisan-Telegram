@@ -4204,6 +4204,27 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 if (updateTextColor) {
                     timeLayout.getPaint().setColor(tpColor);
                 }
+                // Draw live screen time timer to the left of the time string
+                if (currentDialogId != 0) {
+                    try {
+                        org.telegram.messenger.ScreenTimeTracker stTracker = org.telegram.messenger.ScreenTimeTracker.getInstance();
+                        if (stTracker.isTimerVisible(currentDialogId)) {
+                            long liveMs = stTracker.getLiveChatTime(currentDialogId);
+                            if (liveMs > 1000) {
+                                String timerStr = org.telegram.messenger.ScreenTimeTracker.formatDurationShort(liveMs);
+                                final TextPaint stPaint = getTimeTextPaint();
+                                final int stColor = stPaint.getColor();
+                                stPaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteValueText, resourcesProvider));
+                                float timerWidth = stPaint.measureText(timerStr);
+                                float timerX = timeLeft - timerWidth - dp(8);
+                                if (timerX > dp(60)) {
+                                    canvas.drawText(timerStr, timerX, timeLayout.getLineTop(0) + stPaint.getTextSize() - dp(2), stPaint);
+                                }
+                                stPaint.setColor(stColor);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
                 canvas.restore();
             }
 

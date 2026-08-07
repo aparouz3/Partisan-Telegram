@@ -13,7 +13,7 @@ public class ScreenTimeChartData extends ChartData {
 
     /**
      * Build chart data from raw arrays.
-     * @param x        x-axis values (e.g. hour indices 0..23 or chat indices 0..N)
+     * @param x        x-axis values (epoch timestamps or indices)
      * @param y        y-axis values (screen time in ms)
      * @param color    ARGB color for the line
      * @param lineId   line id string
@@ -46,11 +46,11 @@ public class ScreenTimeChartData extends ChartData {
 
         measure();
 
-        // Override daysLookup for hour labels
+        // Override daysLookup for hour labels if needed
         if (hourLabels) {
             daysLookup = new String[x.length + 2];
             for (int i = 0; i < daysLookup.length; i++) {
-                daysLookup[i] = String.format(Locale.ENGLISH, "%02d:00", i);
+                daysLookup[i] = String.format(Locale.ENGLISH, "%02d:00", Math.min(i, 23));
             }
         }
 

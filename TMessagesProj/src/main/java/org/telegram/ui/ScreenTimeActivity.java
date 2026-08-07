@@ -1,9 +1,11 @@
 /*
  * Screen Time Activity — shows per-chat daily screen time.
  * Uses Telegram's native Charts package (BarChartView, LinearBarChartView).
- * Minimal design (like Storage usage list). Per-chat time limits with
- * in-app Bulletin notification when limit is reached.
+ * Minimal design with small avatars (like Storage usage list). Per-chat time limits
+ * with in-app Bulletin notification when limit is reached.
  * Includes: bar chart per chat, hourly distribution curve, and box plot.
+ * Live timer display toggle per chat.
+ * Custom limit input.
  */
 package org.telegram.ui;
 
@@ -11,12 +13,17 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.text.Editable;
+import android.text.InputType;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -26,6 +33,7 @@ import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.R;
 import org.telegram.messenger.ScreenTimeTracker;
 import org.telegram.messenger.UserObject;
+import org.telegram.messenger.ImageLocation;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.AlertDialog;
@@ -38,6 +46,8 @@ import org.telegram.ui.Cells.TextInfoPrivacyCell;
 import org.telegram.ui.Charts.BarChartView;
 import org.telegram.ui.Charts.LinearBarChartView;
 import org.telegram.ui.Charts.data.ScreenTimeChartData;
+import org.telegram.ui.Components.AvatarDrawable;
+import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.Bulletin;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
@@ -55,10 +65,26 @@ public class ScreenTimeActivity extends BaseFragment {
     private long[] hourlyTotal;
     private long[] boxPlot;
 
-    // Cached chart views (created once, reused)
     private BarChartView barChartView;
     private LinearBarChartView hourlyChartView;
     private BoxPlotView boxPlotView;
+
+    // Live timer update runnable
+    private final Runnable updateTimerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (listView != null) {
+                int count = listView.getChildCount();
+                for (int i = 0; i < count; i++) {
+                    View child = listView.getChildAt(i);
+                    if (child instanceof ChatTimeCell) {
+                        ((ChatTimeCell) child).updateLiveTime();
+                    }
+                }
+            }
+            AndroidUtilities.runOnUIThread(this, 1000);
+        }
+    };
 
     @Override
     public View createView(Context context) {
@@ -99,6 +125,13 @@ public class ScreenTimeActivity extends BaseFragment {
     public void onResume() {
         super.onResume();
         refreshData();
+        AndroidUtilities.runOnUIThread(updateTimerRunnable, 1000);
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        AndroidUtilities.cancelRunOnUIThread(updateTimerRunnable);
     }
 
     private void refreshData() {
@@ -121,7 +154,6 @@ public class ScreenTimeActivity extends BaseFragment {
     }
 
     private void updateCharts() {
-        // Build bar chart: per-chat screen time
         if (barChartView != null && data != null && !data.isEmpty()) {
             int n = data.size();
             long[] x = new long[n];
@@ -136,7 +168,6 @@ public class ScreenTimeActivity extends BaseFragment {
             barChartView.pickerDelegate.set(0f, 1f);
         }
 
-        // Build hourly curve chart
         if (hourlyChartView != null && hourlyTotal != null) {
             long[] x = new long[24];
             long[] y = new long[24];
@@ -150,7 +181,6 @@ public class ScreenTimeActivity extends BaseFragment {
             hourlyChartView.pickerDelegate.set(0f, 1f);
         }
 
-        // Box plot
         if (boxPlotView != null) {
             boxPlotView.setData(boxPlot);
         }
@@ -187,6 +217,7 @@ public class ScreenTimeActivity extends BaseFragment {
     private void showLimitDialog(long dialogId) {
         String chatName = getChatName(dialogId);
         ScreenTimeTracker tracker = ScreenTimeTracker.getInstance();
+        long currentLimit = tracker.getLimit(dialogId);
 
         String[] options = {
             "Remove limit",
@@ -194,27 +225,83 @@ public class ScreenTimeActivity extends BaseFragment {
             "15 minutes",
             "30 minutes",
             "1 hour",
-            "2 hours"
+            "2 hours",
+            "Custom..."
         };
-        long[] optionValues = {0, 5*60*1000L, 15*60*1000L, 30*60*1000L, 60*60*1000L, 2*60*60*1000L};
+        long[] optionValues = {0, 5*60*1000L, 15*60*1000L, 30*60*1000L, 60*60*1000L, 2*60*60*1000L, -1};
 
         AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), getResourceProvider());
         builder.setTitle("Time limit for " + chatName);
         builder.setItems(options, (dialog, which) -> {
-            tracker.setLimit(dialogId, optionValues[which]);
-            tracker.resetAlert(dialogId);
-            refreshData();
-
-            Bulletin.SimpleLayout layout = new Bulletin.SimpleLayout(getContext(), getResourceProvider());
-            layout.imageView.setImageResource(R.drawable.msg_check_s);
-            if (optionValues[which] == 0) {
-                layout.textView.setText("Time limit removed for " + chatName);
+            if (which == 6) {
+                showCustomLimitDialog(dialogId, chatName);
             } else {
-                layout.textView.setText("Limit set: " + ScreenTimeTracker.formatDuration(optionValues[which]) + " for " + chatName);
+                applyLimit(dialogId, chatName, optionValues[which], options[which]);
             }
-            Bulletin.make(this, layout, 3000).show();
         });
+        builder.setNegativeButton("Cancel", null);
+
+        // Add timer visibility toggle
+        boolean timerVisible = tracker.isTimerVisible(dialogId);
+        builder.setPositiveButton(timerVisible ? "Hide timer" : "Show timer", (d, w) -> {
+            tracker.toggleTimerVisible(dialogId);
+            refreshData();
+        });
+
         builder.create().show();
+    }
+
+    private void showCustomLimitDialog(long dialogId, String chatName) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), getResourceProvider());
+        builder.setTitle("Custom limit for " + chatName);
+
+        LinearLayout container = new LinearLayout(getParentActivity());
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(AndroidUtilities.dp(24), AndroidUtilities.dp(16), AndroidUtilities.dp(24), AndroidUtilities.dp(8));
+
+        TextView label = new TextView(getParentActivity());
+        label.setText("Enter minutes:");
+        label.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
+        label.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+        container.addView(label, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        EditText input = new EditText(getParentActivity());
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setHint("e.g. 45");
+        input.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+        input.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
+        input.setBackgroundDrawable(Theme.createEditTextDrawable(getParentActivity(), true));
+        container.addView(input, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 40, 0, 8, 0, 0));
+
+        builder.setView(container);
+        builder.setPositiveButton("Set", (d, w) -> {
+            String text = input.getText().toString().trim();
+            try {
+                int minutes = Integer.parseInt(text);
+                if (minutes > 0) {
+                    applyLimit(dialogId, chatName, minutes * 60 * 1000L, minutes + " minutes");
+                }
+            } catch (NumberFormatException ignored) {}
+        });
+        builder.setNegativeButton("Cancel", null);
+        builder.create().show();
+        input.requestFocus();
+    }
+
+    private void applyLimit(long dialogId, String chatName, long limitMs, String label) {
+        ScreenTimeTracker tracker = ScreenTimeTracker.getInstance();
+        tracker.setLimit(dialogId, limitMs);
+        tracker.resetAlert(dialogId);
+        refreshData();
+
+        Bulletin.SimpleLayout layout = new Bulletin.SimpleLayout(getContext(), getResourceProvider());
+        layout.imageView.setImageResource(R.drawable.msg_check_s);
+        if (limitMs == 0) {
+            layout.textView.setText("Time limit removed for " + chatName);
+        } else {
+            layout.textView.setText("Limit set: " + label + " for " + chatName);
+        }
+        Bulletin.make(this, layout, 3000).show();
     }
 
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
@@ -258,7 +345,7 @@ public class ScreenTimeActivity extends BaseFragment {
         public int getItemCount() {
             int items = (data == null ? 0 : data.size());
             int chatSection = 3 + (items == 0 ? 1 : items);
-            int chartSection = 10; // desc + header + chart + desc + header + chart + desc + header + chart + desc
+            int chartSection = 10;
             return chatSection + chartSection;
         }
 
@@ -309,9 +396,29 @@ public class ScreenTimeActivity extends BaseFragment {
         }
 
         private View wrapChartView(View chart) {
-            FrameLayout container = new FrameLayout(context);
-            container.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(8), AndroidUtilities.dp(16), AndroidUtilities.dp(8));
-            container.addView(chart, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, AndroidUtilities.dp(200)));
+            FrameLayout container = new FrameLayout(context) {
+                @Override
+                protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                    int w = MeasureSpec.getSize(widthMeasureSpec);
+                    int h = AndroidUtilities.dp(240);
+                    super.onMeasure(
+                        MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
+                    );
+                    chart.measure(
+                        MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(32), MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(16), MeasureSpec.EXACTLY)
+                    );
+                }
+                @Override
+                protected void onLayout(boolean changed, int l, int t, int r, int b) {
+                    chart.layout(AndroidUtilities.dp(16), AndroidUtilities.dp(8),
+                        getWidth() - AndroidUtilities.dp(16), getHeight() - AndroidUtilities.dp(8));
+                }
+            };
+            container.setPadding(0, AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4));
+            container.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+            container.addView(chart);
             return container;
         }
 
@@ -345,7 +452,7 @@ public class ScreenTimeActivity extends BaseFragment {
                 int items = (data == null ? 0 : data.size());
                 int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items);
                 if (position == itemsEnd) {
-                    ((TextInfoPrivacyCell) holder.itemView).setText("Tap any chat to set a daily time limit. You'll get a notification when the limit is reached.");
+                    ((TextInfoPrivacyCell) holder.itemView).setText("Tap any chat to set a daily time limit or toggle the live timer. You'll get a notification when the limit is reached.");
                 } else if (position == itemsEnd + 3) {
                     ((TextInfoPrivacyCell) holder.itemView).setText("Bar chart comparing screen time across all chats today.");
                 } else if (position == itemsEnd + 6) {
@@ -357,47 +464,74 @@ public class ScreenTimeActivity extends BaseFragment {
         }
     }
 
-    // --- Minimal chat row cell ---
+    // --- Chat row with small avatar + live timer ---
     private class ChatTimeCell extends FrameLayout {
+        private final BackupImageView avatarImageView;
+        private final AvatarDrawable avatarDrawable;
         private final TextView nameText;
         private final TextView valueText;
         private final View progressView;
         private final TextView limitText;
+        private long dialogId;
+        private long ms;
+        private long maxMs;
 
         public ChatTimeCell(Context context) {
             super(context);
-            setPadding(AndroidUtilities.dp(20), AndroidUtilities.dp(12), AndroidUtilities.dp(20), AndroidUtilities.dp(12));
+            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(10), AndroidUtilities.dp(16), AndroidUtilities.dp(10));
             setBackground(Theme.getSelectorDrawable(Theme.getColor(Theme.key_listSelector), false));
+
+            avatarDrawable = new AvatarDrawable();
+            avatarImageView = new BackupImageView(context);
+            avatarImageView.setRoundRadius(AndroidUtilities.dp(20));
+            addView(avatarImageView, LayoutHelper.createFrame(40, 40, Gravity.TOP | Gravity.LEFT, 0, 0, 0, 0));
 
             nameText = new TextView(context);
             nameText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
             nameText.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
             nameText.setMaxLines(1);
             nameText.setEllipsize(TextUtils.TruncateAt.END);
-            addView(nameText, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT, 0, 0, 0, 0));
+            addView(nameText, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT, 52, 2, 0, 0));
 
             valueText = new TextView(context);
             valueText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
             valueText.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
             valueText.setGravity(Gravity.RIGHT);
-            addView(valueText, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.RIGHT, 0, 0, 0, 0));
+            addView(valueText, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.RIGHT, 0, 4, 0, 0));
 
             progressView = new View(context);
-            progressView.setBackgroundColor(Theme.getColor(Theme.key_chats_actionBackground));
-            addView(progressView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 2, Gravity.TOP | Gravity.LEFT, 0, 36, 0, 0));
+            progressView.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText));
+            addView(progressView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 3, Gravity.TOP | Gravity.LEFT, 52, 24, 0, 0));
 
             limitText = new TextView(context);
             limitText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13);
             limitText.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
             limitText.setVisibility(View.GONE);
-            addView(limitText, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT, 0, 44, 0, 0));
+            addView(limitText, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT, 52, 30, 0, 0));
         }
 
         public void setData(long dialogId, String name, long ms, long maxMs) {
+            this.dialogId = dialogId;
+            this.ms = ms;
+            this.maxMs = maxMs;
+
             nameText.setText(name);
             valueText.setText(ScreenTimeTracker.formatDuration(ms));
+
+            // Set avatar
+            TLRPC.User user = getUser(dialogId);
+            TLRPC.Chat chat = getChat(dialogId);
+            if (user != null) {
+                avatarDrawable.setInfo(getCurrentAccount(), user);
+                avatarImageView.setForUserOrChat(user, avatarDrawable);
+            } else if (chat != null) {
+                avatarDrawable.setInfo(getCurrentAccount(), chat);
+                avatarImageView.setForUserOrChat(chat, avatarDrawable);
+            }
+
             float ratio = maxMs > 0 ? (float) ms / maxMs : 0;
-            progressView.setScaleX(ratio);
+            progressView.setScaleX(Math.max(0.02f, ratio));
+
             long limit = ScreenTimeTracker.getInstance().getLimit(dialogId);
             if (limit > 0) {
                 limitText.setVisibility(View.VISIBLE);
@@ -406,6 +540,7 @@ public class ScreenTimeActivity extends BaseFragment {
                     limitText.setTextColor(Theme.getColor(Theme.key_text_RedBold));
                     limitStr += " — Reached!";
                 } else {
+                    limitText.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
                     long remaining = limit - ms;
                     limitStr += " (" + ScreenTimeTracker.formatDuration(remaining) + " left)";
                 }
@@ -414,9 +549,18 @@ public class ScreenTimeActivity extends BaseFragment {
                 limitText.setVisibility(View.GONE);
             }
         }
+
+        public void updateLiveTime() {
+            if (dialogId == 0) return;
+            boolean timerVisible = ScreenTimeTracker.getInstance().isTimerVisible(dialogId);
+            if (timerVisible) {
+                long liveMs = ScreenTimeTracker.getInstance().getLiveChatTime(dialogId);
+                valueText.setText(ScreenTimeTracker.formatDurationShort(liveMs));
+            }
+        }
     }
 
-    // --- Box plot chart (custom — Telegram has no built-in box plot) ---
+    // --- Box plot chart ---
     private class BoxPlotView extends View {
         private long[] box;
         private final Paint boxPaint;
@@ -457,8 +601,8 @@ public class ScreenTimeActivity extends BaseFragment {
 
         @Override
         protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            setMeasuredDimension(View.getDefaultSize(getSuggestedMinimumWidth(), widthMeasureSpec),
-                    AndroidUtilities.dp(200));
+            int w = View.getDefaultSize(getSuggestedMinimumWidth(), widthMeasureSpec);
+            setMeasuredDimension(w, AndroidUtilities.dp(200));
         }
 
         @Override
@@ -466,7 +610,7 @@ public class ScreenTimeActivity extends BaseFragment {
             super.onDraw(canvas);
             int w = getWidth();
             int h = getHeight();
-            int pad = AndroidUtilities.dp(24);
+            if (w <= 0 || h <= 0) return;
             int chartH = h - AndroidUtilities.dp(28);
             int bottom = chartH;
 
@@ -480,23 +624,18 @@ public class ScreenTimeActivity extends BaseFragment {
             float medianY = bottom - (box[2] * 1f / maxVal) * chartH;
             float maxY = bottom - (box[4] * 1f / maxVal) * chartH;
 
-            // Whiskers
             canvas.drawLine(centerX, maxY, centerX, q3Y, linePaint);
             canvas.drawLine(centerX, q1Y, centerX, minY, linePaint);
 
-            // Whisker caps
             canvas.drawLine(centerX - boxW/2, maxY, centerX + boxW/2, maxY, linePaint);
             canvas.drawLine(centerX - boxW/2, minY, centerX + boxW/2, minY, linePaint);
 
-            // Box (Q1 to Q3)
             boxRect.set(centerX - boxW/2, q3Y, centerX + boxW/2, q1Y);
             canvas.drawRect(boxRect, fillPaint);
             canvas.drawRect(boxRect, boxPaint);
 
-            // Median line
             canvas.drawLine(centerX - boxW/2, medianY, centerX + boxW/2, medianY, medianPaint);
 
-            // Labels
             String[] labels = {"min", "Q1", "median", "Q3", "max"};
             float[] ys = {minY, q1Y, medianY, q3Y, maxY};
             for (int i = 0; i < 5; i++) {
