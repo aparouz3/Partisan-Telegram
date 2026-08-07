@@ -822,9 +822,10 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         if (items.get(items.size() - 1).viewType != UniversalAdapter.VIEW_TYPE_SHADOW)
             items.add(UItem.asShadow(null));
 
-        // === Screen Time feature ===
+        // === SCREEN_TIME_FEATURE START === (menu item in settings list)
         items.add(SettingCell.Factory.of(100, IconBackgroundColors.CYAN.top, IconBackgroundColors.CYAN.bottom, R.drawable.settings_power, "Screen Time", "See how much time you spend in each chat"));
         items.add(UItem.asShadow(null));
+        // === SCREEN_TIME_FEATURE END ===
 
         items.add(UItem.asHeader(getString(R.string.SettingsHelp)));
         items.add(SettingCell.Factory.of(17, IconBackgroundColors.ORANGE.top, IconBackgroundColors.ORANGE.bottom, R.drawable.settings_ask, getString(R.string.AskAQuestion)));
@@ -927,9 +928,11 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
             case 6:
                 presentSettingFragment(new DataSettingsActivity());
                 break;
+            // === SCREEN_TIME_FEATURE START === (menu click handler, id=100)
             case 100:
                 presentFragment(new ScreenTimeActivity());
                 break;
+            // === SCREEN_TIME_FEATURE END ===
             case 7:
                 presentSettingFragment(new FiltersSetupActivity());
                 break;

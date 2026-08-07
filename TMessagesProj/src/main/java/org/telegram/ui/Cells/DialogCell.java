@@ -4204,7 +4204,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 if (updateTextColor) {
                     timeLayout.getPaint().setColor(tpColor);
                 }
-                // Draw live screen time timer below the name line, right-aligned (next to time)
+                // === SCREEN_TIME_FEATURE START === (draw live timer below name line, right-aligned)
                 if (currentDialogId != 0) {
                     try {
                         org.telegram.messenger.ScreenTimeTracker stTracker = org.telegram.messenger.ScreenTimeTracker.getInstance();
@@ -4231,6 +4231,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                         }
                     } catch (Exception ignored) {}
                 }
+                // === SCREEN_TIME_FEATURE END ===
                 canvas.restore();
             }
 

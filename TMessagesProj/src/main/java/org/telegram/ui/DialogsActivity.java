@@ -518,7 +518,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private ValueAnimator contactsAlphaAnimator;
     private ViewPage[] viewPages;
 
-    // Screen time live timer — invalidate dialog cells every second to update timer text
+    // === SCREEN_TIME_FEATURE START === (invalidate dialog cells every second to update live timer text)
     private final Runnable screenTimeDialogsRunnable = new Runnable() {
         @Override
         public void run() {
@@ -538,6 +538,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             AndroidUtilities.runOnUIThread(this, 1000);
         }
     };
+    // === SCREEN_TIME_FEATURE END ===
     private ActionBarMenuItem passcodeItem;
     private ActionBarMenuItem downloadsItem;
     private DownloadProgressIcon downloadProgressIcon;
@@ -7088,8 +7089,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     @Override
     public void onResume() {
         super.onResume();
-        // Screen time live timer — refresh dialog cells every second
+        // === SCREEN_TIME_FEATURE START === (start 1s refresh of dialog cells)
         AndroidUtilities.runOnUIThread(screenTimeDialogsRunnable, 1000);
+        // === SCREEN_TIME_FEATURE END ===
         if (dialogStoriesCell != null) {
             dialogStoriesCell.onResume();
         }
@@ -7464,7 +7466,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     @Override
     public void onPause() {
         super.onPause();
+        // === SCREEN_TIME_FEATURE START === (stop 1s refresh of dialog cells)
         AndroidUtilities.cancelRunOnUIThread(screenTimeDialogsRunnable);
+        // === SCREEN_TIME_FEATURE END ===
         if (storiesBulletin != null) {
             storiesBulletin.hide();
             storiesBulletin = null;
