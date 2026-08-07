@@ -1,22 +1,23 @@
 /*
  * Screen Time Activity — shows per-chat daily screen time.
- * Uses Telegram's native Charts package (BarChartView, LinearBarChartView).
- * Minimal design with small avatars (like Storage usage list). Per-chat time limits
- * with in-app Bulletin notification when limit is reached.
- * Includes: bar chart per chat, hourly distribution curve, and box plot.
- * Live timer display toggle per chat.
- * Custom limit input.
+ * Custom canvas-based charts (no dependency on Telegram's chart package which
+ * requires SharedUiComponents and has complex onMeasure behavior that crashes
+ * when used outside StatisticActivity).
+ * Features: bar chart per chat, hourly distribution curve, box plot,
+ * small avatars (like Storage usage list), per-chat time limits with
+ * in-app Bulletin notification, live timer display toggle per chat,
+ * global timer on/off toggle, custom limit input.
  */
 package org.telegram.ui;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.text.Editable;
+import android.graphics.Shader;
 import android.text.InputType;
 import android.text.TextUtils;
-import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -33,7 +34,6 @@ import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.R;
 import org.telegram.messenger.ScreenTimeTracker;
 import org.telegram.messenger.UserObject;
-import org.telegram.messenger.ImageLocation;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.AlertDialog;
@@ -43,9 +43,6 @@ import org.telegram.ui.ActionBar.ThemeDescription;
 import org.telegram.ui.Cells.HeaderCell;
 import org.telegram.ui.Cells.TextCell;
 import org.telegram.ui.Cells.TextInfoPrivacyCell;
-import org.telegram.ui.Charts.BarChartView;
-import org.telegram.ui.Charts.LinearBarChartView;
-import org.telegram.ui.Charts.data.ScreenTimeChartData;
 import org.telegram.ui.Components.AvatarDrawable;
 import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.Bulletin;
@@ -64,10 +61,6 @@ public class ScreenTimeActivity extends BaseFragment {
 
     private long[] hourlyTotal;
     private long[] boxPlot;
-
-    // Cached chart data so we can re-bind when RecyclerView recycles views
-    private ScreenTimeChartData cachedBarData;
-    private ScreenTimeChartData cachedHourlyData;
 
     // Live timer update runnable
     private final Runnable updateTimerRunnable = new Runnable() {
@@ -115,6 +108,14 @@ public class ScreenTimeActivity extends BaseFragment {
                     long[] entry = data.get(idx);
                     showLimitDialog(entry[0]);
                 }
+            } else if (type == 10) {
+                // Toggle global timer
+                boolean newVal = ScreenTimeTracker.getInstance().toggleGlobalTimer();
+                refreshData();
+                Bulletin.SimpleLayout layout = new Bulletin.SimpleLayout(getContext(), getResourceProvider());
+                layout.imageView.setImageResource(R.drawable.msg_check_s);
+                layout.textView.setText(newVal ? "Timer enabled in chat list" : "Timer disabled in chat list");
+                Bulletin.make(this, layout, 2500).show();
             }
         });
 
@@ -147,34 +148,6 @@ public class ScreenTimeActivity extends BaseFragment {
         }
         hourlyTotal = tracker.getHourlyDistribution();
         boxPlot = tracker.getHourlyBoxPlot();
-
-        // Pre-compute chart data so it's ready when chart views are bound
-        if (data != null && !data.isEmpty()) {
-            int n = data.size();
-            long[] x = new long[n];
-            long[] y = new long[n];
-            for (int i = 0; i < n; i++) {
-                x[i] = i;
-                y[i] = data.get(i)[1];
-            }
-            int color = Theme.getColor(Theme.key_windowBackgroundWhiteBlueText);
-            cachedBarData = new ScreenTimeChartData(x, y, color, "screen_time", false);
-        } else {
-            cachedBarData = null;
-        }
-
-        if (hourlyTotal != null) {
-            long[] x = new long[24];
-            long[] y = new long[24];
-            for (int i = 0; i < 24; i++) {
-                x[i] = i;
-                y[i] = hourlyTotal[i];
-            }
-            int color = Theme.getColor(Theme.key_windowBackgroundWhiteBlueText);
-            cachedHourlyData = new ScreenTimeChartData(x, y, color, "hourly", true);
-        } else {
-            cachedHourlyData = null;
-        }
 
         if (adapter != null) {
             adapter.notifyDataSetChanged();
@@ -236,7 +209,6 @@ public class ScreenTimeActivity extends BaseFragment {
         });
         builder.setNegativeButton("Cancel", null);
 
-        // Add timer visibility toggle
         boolean timerVisible = tracker.isTimerVisible(dialogId);
         builder.setPositiveButton(timerVisible ? "Hide timer" : "Show timer", (d, w) -> {
             tracker.toggleTimerVisible(dialogId);
@@ -299,6 +271,8 @@ public class ScreenTimeActivity extends BaseFragment {
         Bulletin.make(this, layout, 3000).show();
     }
 
+    // =================== Adapter ===================
+
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
 
         private final Context context;
@@ -310,7 +284,7 @@ public class ScreenTimeActivity extends BaseFragment {
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
             int pos = holder.getAdapterPosition();
-            return adapter.getItemViewType(pos) == 3;
+            return adapter.getItemViewType(pos) == 3 || adapter.getItemViewType(pos) == 10;
         }
 
         @Override
@@ -323,24 +297,25 @@ public class ScreenTimeActivity extends BaseFragment {
             if (position == 2) return 2; // "By Chat" header
             if (position == offset && items == 0) return 4; // empty state
             if (position >= offset && position < itemsEnd) return 3; // chat row
-            if (position == itemsEnd) return 1; // section desc
-            if (position == itemsEnd + 1) return 5; // bar chart header
-            if (position == itemsEnd + 2) return 6; // bar chart
-            if (position == itemsEnd + 3) return 7; // bar chart desc
-            if (position == itemsEnd + 4) return 5; // hourly header
-            if (position == itemsEnd + 5) return 8; // hourly chart
-            if (position == itemsEnd + 6) return 7; // hourly desc
-            if (position == itemsEnd + 7) return 5; // box plot header
-            if (position == itemsEnd + 8) return 9; // box plot chart
-            if (position == itemsEnd + 9) return 7; // box plot desc
+            if (position == itemsEnd) return 10; // global timer toggle
+            if (position == itemsEnd + 1) return 1; // section desc
+            if (position == itemsEnd + 2) return 5; // bar chart header
+            if (position == itemsEnd + 3) return 6; // bar chart
+            if (position == itemsEnd + 4) return 7; // bar chart desc
+            if (position == itemsEnd + 5) return 5; // hourly header
+            if (position == itemsEnd + 6) return 8; // hourly chart
+            if (position == itemsEnd + 7) return 7; // hourly desc
+            if (position == itemsEnd + 8) return 5; // box plot header
+            if (position == itemsEnd + 9) return 9; // box plot chart
+            if (position == itemsEnd + 10) return 7; // box plot desc
             return 0;
         }
 
         @Override
         public int getItemCount() {
             int items = (data == null ? 0 : data.size());
-            int chatSection = 3 + (items == 0 ? 1 : items);
-            int chartSection = 10;
+            int chatSection = 3 + (items == 0 ? 1 : items) + 1; // +1 for global toggle
+            int chartSection = 11;
             return chatSection + chartSection;
         }
 
@@ -372,13 +347,16 @@ public class ScreenTimeActivity extends BaseFragment {
                     view = new HeaderCell(context, getResourceProvider());
                     break;
                 case 6:
-                    view = new ChartContainer(context, ChartContainer.TYPE_BAR);
+                    view = new BarChartContainer(context);
                     break;
                 case 8:
-                    view = new ChartContainer(context, ChartContainer.TYPE_HOURLY);
+                    view = new HourlyChartContainer(context);
                     break;
                 case 9:
                     view = new BoxPlotContainer(context);
+                    break;
+                case 10:
+                    view = new TextCell(context, getResourceProvider());
                     break;
                 case 7:
                 default:
@@ -403,9 +381,14 @@ public class ScreenTimeActivity extends BaseFragment {
             } else if (type == 4) {
                 TextCell cell = (TextCell) holder.itemView;
                 cell.setText("No chats tracked yet", false);
+            } else if (type == 10) {
+                // Global timer toggle
+                boolean globalTimer = ScreenTimeTracker.getInstance().isGlobalTimerEnabled();
+                TextCell cell = (TextCell) holder.itemView;
+                cell.setTextAndValue("Show timer in chat list", globalTimer ? "On" : "Off", true);
             } else if (type == 5) {
                 int items = (data == null ? 0 : data.size());
-                int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items);
+                int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items) + 1;
                 if (position == itemsEnd + 1) {
                     ((HeaderCell) holder.itemView).setText("Time per Chat");
                 } else if (position == itemsEnd + 4) {
@@ -414,14 +397,14 @@ public class ScreenTimeActivity extends BaseFragment {
                     ((HeaderCell) holder.itemView).setText("Usage Spread");
                 }
             } else if (type == 6) {
-                ((ChartContainer) holder.itemView).setData(cachedBarData);
+                ((BarChartContainer) holder.itemView).setData(data, maxTime);
             } else if (type == 8) {
-                ((ChartContainer) holder.itemView).setData(cachedHourlyData);
+                ((HourlyChartContainer) holder.itemView).setData(hourlyTotal);
             } else if (type == 9) {
                 ((BoxPlotContainer) holder.itemView).setData(boxPlot);
             } else if (type == 7) {
                 int items = (data == null ? 0 : data.size());
-                int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items);
+                int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items) + 1;
                 if (position == itemsEnd) {
                     ((TextInfoPrivacyCell) holder.itemView).setText("Tap any chat to set a daily time limit or toggle the live timer. You'll get a notification when the limit is reached.");
                 } else if (position == itemsEnd + 3) {
@@ -435,110 +418,8 @@ public class ScreenTimeActivity extends BaseFragment {
         }
     }
 
-    // --- Chart container that holds its own chart view and can be re-bound ---
-    private class ChartContainer extends FrameLayout {
-        static final int TYPE_BAR = 0;
-        static final int TYPE_HOURLY = 1;
+    // =================== Chat row ===================
 
-        private final int chartType;
-        private BarChartView barChartView;
-        private LinearBarChartView hourlyChartView;
-
-        public ChartContainer(Context context, int chartType) {
-            super(context);
-            this.chartType = chartType;
-            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(4));
-            setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-
-            if (chartType == TYPE_BAR) {
-                barChartView = new BarChartView(context);
-                addView(barChartView);
-            } else {
-                hourlyChartView = new LinearBarChartView(context);
-                addView(hourlyChartView);
-            }
-        }
-
-        public void setData(ScreenTimeChartData chartData) {
-            if (chartData == null) return;
-            if (chartType == TYPE_BAR && barChartView != null) {
-                barChartView.setData(chartData);
-                barChartView.pickerDelegate.set(0f, 1f);
-            } else if (chartType == TYPE_HOURLY && hourlyChartView != null) {
-                hourlyChartView.setData(chartData);
-                hourlyChartView.pickerDelegate.set(0f, 1f);
-            }
-        }
-
-        @Override
-        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            int w = MeasureSpec.getSize(widthMeasureSpec);
-            int h = AndroidUtilities.dp(240);
-            super.onMeasure(
-                MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
-            );
-            View chart = chartType == TYPE_BAR ? barChartView : hourlyChartView;
-            if (chart != null) {
-                chart.measure(
-                    MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(0), MeasureSpec.EXACTLY),
-                    MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(8), MeasureSpec.EXACTLY)
-                );
-            }
-        }
-
-        @Override
-        protected void onLayout(boolean changed, int l, int t, int r, int b) {
-            View chart = chartType == TYPE_BAR ? barChartView : hourlyChartView;
-            if (chart != null) {
-                chart.layout(0, AndroidUtilities.dp(4), getWidth(), getHeight() - AndroidUtilities.dp(4));
-            }
-        }
-    }
-
-    // --- Box plot container ---
-    private class BoxPlotContainer extends FrameLayout {
-        private BoxPlotView boxPlotView;
-
-        public BoxPlotContainer(Context context) {
-            super(context);
-            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(4));
-            setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-            boxPlotView = new BoxPlotView(context);
-            addView(boxPlotView);
-        }
-
-        public void setData(long[] data) {
-            if (boxPlotView != null) {
-                boxPlotView.setData(data);
-            }
-        }
-
-        @Override
-        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            int w = MeasureSpec.getSize(widthMeasureSpec);
-            int h = AndroidUtilities.dp(220);
-            super.onMeasure(
-                MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
-            );
-            if (boxPlotView != null) {
-                boxPlotView.measure(
-                    MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(0), MeasureSpec.EXACTLY),
-                    MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(8), MeasureSpec.EXACTLY)
-                );
-            }
-        }
-
-        @Override
-        protected void onLayout(boolean changed, int l, int t, int r, int b) {
-            if (boxPlotView != null) {
-                boxPlotView.layout(0, AndroidUtilities.dp(4), getWidth(), getHeight() - AndroidUtilities.dp(4));
-            }
-        }
-    }
-
-    // --- Chat row with small avatar + live timer ---
     private class ChatTimeCell extends FrameLayout {
         private final BackupImageView avatarImageView;
         private final AvatarDrawable avatarDrawable;
@@ -576,7 +457,6 @@ public class ScreenTimeActivity extends BaseFragment {
             progressView = new View(context) {
                 @Override
                 public void setScaleX(float scale) {
-                    // Scale from left edge, not center
                     setPivotX(0);
                     super.setScaleX(scale);
                 }
@@ -599,7 +479,6 @@ public class ScreenTimeActivity extends BaseFragment {
             nameText.setText(name);
             valueText.setText(ScreenTimeTracker.formatDuration(ms));
 
-            // Set avatar
             TLRPC.User user = getUser(dialogId);
             TLRPC.Chat chat = getChat(dialogId);
             if (user != null) {
@@ -633,15 +512,333 @@ public class ScreenTimeActivity extends BaseFragment {
 
         public void updateLiveTime() {
             if (dialogId == 0) return;
-            boolean timerVisible = ScreenTimeTracker.getInstance().isTimerVisible(dialogId);
-            if (timerVisible) {
+            if (ScreenTimeTracker.getInstance().isTimerVisible(dialogId)) {
                 long liveMs = ScreenTimeTracker.getInstance().getLiveChatTime(dialogId);
                 valueText.setText(ScreenTimeTracker.formatDuration(liveMs));
             }
         }
     }
 
-    // --- Box plot chart ---
+    // =================== Custom Bar Chart ===================
+
+    private class BarChartContainer extends FrameLayout {
+        private BarChartView chartView;
+
+        public BarChartContainer(Context context) {
+            super(context);
+            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(4));
+            setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+            chartView = new BarChartView(context);
+            addView(chartView);
+        }
+
+        public void setData(List<long[]> data, long maxTime) {
+            chartView.setData(data, maxTime);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int w = MeasureSpec.getSize(widthMeasureSpec);
+            int h = AndroidUtilities.dp(240);
+            super.onMeasure(
+                MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
+            );
+            chartView.measure(
+                MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(32), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(8), MeasureSpec.EXACTLY)
+            );
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            chartView.layout(0, AndroidUtilities.dp(4), getWidth(), getHeight() - AndroidUtilities.dp(4));
+        }
+    }
+
+    private class BarChartView extends View {
+        private List<long[]> chartData;
+        private long chartMaxTime = 1;
+        private final Paint barPaint;
+        private final Paint textPaint;
+        private final Paint gridPaint;
+
+        public BarChartView(Context context) {
+            super(context);
+            barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            barPaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText));
+            textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            textPaint.setTextSize(AndroidUtilities.dp(10));
+            textPaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
+            gridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            gridPaint.setStrokeWidth(1);
+            gridPaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+            gridPaint.setAlpha(40);
+        }
+
+        public void setData(List<long[]> data, long maxTime) {
+            chartData = data;
+            chartMaxTime = Math.max(maxTime, 1);
+            invalidate();
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int w = MeasureSpec.getSize(widthMeasureSpec);
+            int h = MeasureSpec.getSize(heightMeasureSpec);
+            if (h <= 0) h = AndroidUtilities.dp(200);
+            setMeasuredDimension(w, h);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            if (chartData == null || chartData.isEmpty()) return;
+            int w = getWidth();
+            int h = getHeight();
+            if (w <= 0 || h <= 0) return;
+
+            int paddingLeft = AndroidUtilities.dp(4);
+            int paddingRight = AndroidUtilities.dp(4);
+            int paddingTop = AndroidUtilities.dp(8);
+            int paddingBottom = AndroidUtilities.dp(24);
+            int chartW = w - paddingLeft - paddingRight;
+            int chartH = h - paddingTop - paddingBottom;
+            int n = chartData.size();
+
+            // Draw grid lines
+            for (int i = 0; i <= 4; i++) {
+                float y = paddingTop + (chartH * i / 4f);
+                canvas.drawLine(paddingLeft, y, w - paddingRight, y, gridPaint);
+            }
+
+            float barWidth = chartW / (float) n;
+            float barGap = barWidth * 0.2f;
+            float actualBarW = barWidth - barGap;
+
+            for (int i = 0; i < n; i++) {
+                long[] entry = chartData.get(i);
+                float ratio = (float) entry[1] / chartMaxTime;
+                float barH = ratio * chartH;
+                float left = paddingLeft + i * barWidth + barGap / 2f;
+                float top = paddingTop + chartH - barH;
+                float right = left + actualBarW;
+                float bottom = paddingTop + chartH;
+
+                // Gradient bar
+                int color = Theme.getColor(Theme.key_windowBackgroundWhiteBlueText);
+                LinearGradient gradient = new LinearGradient(left, top, left, bottom, color, 0xFF4FC3F7, Shader.TileMode.CLAMP);
+                barPaint.setShader(gradient);
+                RectF rect = new RectF(left, top, right, bottom);
+                canvas.drawRoundRect(rect, AndroidUtilities.dp(2), AndroidUtilities.dp(2), barPaint);
+                barPaint.setShader(null);
+
+                // Draw value on top of bar if tall enough
+                if (barH > AndroidUtilities.dp(20)) {
+                    String valStr = formatShort(entry[1]);
+                    float textW = textPaint.measureText(valStr);
+                    canvas.drawText(valStr, left + (actualBarW - textW) / 2f, top - AndroidUtilities.dp(2), textPaint);
+                }
+            }
+
+            // Draw x-axis label
+            String label = n + " chats";
+            float labelW = textPaint.measureText(label);
+            canvas.drawText(label, (w - labelW) / 2f, h - AndroidUtilities.dp(6), textPaint);
+        }
+
+        private String formatShort(long ms) {
+            long minutes = ms / 60000;
+            if (minutes >= 60) {
+                long hours = minutes / 60;
+                long mins = minutes % 60;
+                return hours + "h" + (mins > 0 ? " " + mins + "m" : "");
+            }
+            return minutes + "m";
+        }
+    }
+
+    // =================== Custom Hourly Chart ===================
+
+    private class HourlyChartContainer extends FrameLayout {
+        private HourlyChartView chartView;
+
+        public HourlyChartContainer(Context context) {
+            super(context);
+            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(4));
+            setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+            chartView = new HourlyChartView(context);
+            addView(chartView);
+        }
+
+        public void setData(long[] hourly) {
+            chartView.setData(hourly);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int w = MeasureSpec.getSize(widthMeasureSpec);
+            int h = AndroidUtilities.dp(240);
+            super.onMeasure(
+                MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
+            );
+            chartView.measure(
+                MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(32), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(8), MeasureSpec.EXACTLY)
+            );
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            chartView.layout(0, AndroidUtilities.dp(4), getWidth(), getHeight() - AndroidUtilities.dp(4));
+        }
+    }
+
+    private class HourlyChartView extends View {
+        private long[] hourly;
+        private long maxVal = 1;
+        private final Paint linePaint;
+        private final Paint fillPaint;
+        private final Paint textPaint;
+        private final Paint gridPaint;
+
+        public HourlyChartView(Context context) {
+            super(context);
+            linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            linePaint.setStyle(Paint.Style.STROKE);
+            linePaint.setStrokeWidth(AndroidUtilities.dp(2));
+            linePaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText));
+            fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            fillPaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText));
+            fillPaint.setAlpha(40);
+            textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            textPaint.setTextSize(AndroidUtilities.dp(9));
+            textPaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
+            gridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            gridPaint.setStrokeWidth(1);
+            gridPaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+            gridPaint.setAlpha(40);
+        }
+
+        public void setData(long[] data) {
+            hourly = data;
+            maxVal = 1;
+            if (data != null) {
+                for (long v : data) {
+                    if (v > maxVal) maxVal = v;
+                }
+            }
+            invalidate();
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int w = MeasureSpec.getSize(widthMeasureSpec);
+            int h = MeasureSpec.getSize(heightMeasureSpec);
+            if (h <= 0) h = AndroidUtilities.dp(200);
+            setMeasuredDimension(w, h);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            if (hourly == null) return;
+            int w = getWidth();
+            int h = getHeight();
+            if (w <= 0 || h <= 0) return;
+
+            int paddingLeft = AndroidUtilities.dp(8);
+            int paddingRight = AndroidUtilities.dp(8);
+            int paddingTop = AndroidUtilities.dp(8);
+            int paddingBottom = AndroidUtilities.dp(20);
+            int chartW = w - paddingLeft - paddingRight;
+            int chartH = h - paddingTop - paddingBottom;
+
+            // Grid lines
+            for (int i = 0; i <= 4; i++) {
+                float y = paddingTop + (chartH * i / 4f);
+                canvas.drawLine(paddingLeft, y, w - paddingRight, y, gridPaint);
+            }
+
+            float stepX = chartW / 23f;
+
+            // Build path for filled area
+            android.graphics.Path path = new android.graphics.Path();
+            android.graphics.Path linePath = new android.graphics.Path();
+            path.moveTo(paddingLeft, paddingTop + chartH);
+            boolean first = true;
+            for (int i = 0; i < 24; i++) {
+                float x = paddingLeft + i * stepX;
+                float ratio = (float) hourly[i] / maxVal;
+                float y = paddingTop + chartH - ratio * chartH;
+                if (first) {
+                    linePath.moveTo(x, y);
+                    first = false;
+                } else {
+                    linePath.lineTo(x, y);
+                }
+                path.lineTo(x, y);
+            }
+            path.lineTo(paddingLeft + 23 * stepX, paddingTop + chartH);
+            path.close();
+
+            canvas.drawPath(path, fillPaint);
+            canvas.drawPath(linePath, linePaint);
+
+            // Hour labels (every 4 hours)
+            for (int i = 0; i < 24; i += 4) {
+                String label = String.format("%02d", i);
+                float x = paddingLeft + i * stepX;
+                float labelW = textPaint.measureText(label);
+                canvas.drawText(label, x - labelW / 2f, h - AndroidUtilities.dp(6), textPaint);
+            }
+        }
+    }
+
+    // =================== Box Plot ===================
+
+    private class BoxPlotContainer extends FrameLayout {
+        private BoxPlotView boxPlotView;
+
+        public BoxPlotContainer(Context context) {
+            super(context);
+            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(4));
+            setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+            boxPlotView = new BoxPlotView(context);
+            addView(boxPlotView);
+        }
+
+        public void setData(long[] data) {
+            if (boxPlotView != null) {
+                boxPlotView.setData(data);
+            }
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int w = MeasureSpec.getSize(widthMeasureSpec);
+            int h = AndroidUtilities.dp(220);
+            super.onMeasure(
+                MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
+            );
+            if (boxPlotView != null) {
+                boxPlotView.measure(
+                    MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(32), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(8), MeasureSpec.EXACTLY)
+                );
+            }
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            if (boxPlotView != null) {
+                boxPlotView.layout(0, AndroidUtilities.dp(4), getWidth(), getHeight() - AndroidUtilities.dp(4));
+            }
+        }
+    }
+
     private class BoxPlotView extends View {
         private long[] box;
         private final Paint boxPaint;
@@ -682,8 +879,10 @@ public class ScreenTimeActivity extends BaseFragment {
 
         @Override
         protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            int w = View.getDefaultSize(getSuggestedMinimumWidth(), widthMeasureSpec);
-            setMeasuredDimension(w, AndroidUtilities.dp(200));
+            int w = MeasureSpec.getSize(widthMeasureSpec);
+            int h = MeasureSpec.getSize(heightMeasureSpec);
+            if (h <= 0) h = AndroidUtilities.dp(200);
+            setMeasuredDimension(w, h);
         }
 
         @Override

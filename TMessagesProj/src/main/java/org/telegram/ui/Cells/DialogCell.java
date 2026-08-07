@@ -4204,7 +4204,7 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                 if (updateTextColor) {
                     timeLayout.getPaint().setColor(tpColor);
                 }
-                // Draw live screen time timer to the left of the time string
+                // Draw live screen time timer below the name line, right-aligned (next to time)
                 if (currentDialogId != 0) {
                     try {
                         org.telegram.messenger.ScreenTimeTracker stTracker = org.telegram.messenger.ScreenTimeTracker.getInstance();
@@ -4216,14 +4216,14 @@ public class DialogCell extends BaseCell implements StoriesListPlaceProvider.Ava
                                 final int stColor = stPaint.getColor();
                                 final float stSize = stPaint.getTextSize();
                                 // Smaller font size
-                                stPaint.setTextSize(stSize * 0.8f);
+                                stPaint.setTextSize(stSize * 0.75f);
                                 // Lighter color
                                 stPaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText, resourcesProvider));
+                                // Draw below the name, at the message line level, right-aligned
+                                float timerY = dp(useForceThreeLines || SharedConfig.useThreeLinesLayout ? 38 : 42) + stPaint.getTextSize();
                                 float timerWidth = stPaint.measureText(timerStr);
-                                float timerX = timeLeft - timerWidth - dp(6);
-                                if (timerX > dp(60)) {
-                                    canvas.drawText(timerStr, timerX, timeLayout.getLineTop(0) + stPaint.getTextSize() - dp(1), stPaint);
-                                }
+                                float timerX = timeLeft - timerWidth;
+                                canvas.drawText(timerStr, timerX, timerY, stPaint);
                                 // Restore paint
                                 stPaint.setColor(stColor);
                                 stPaint.setTextSize(stSize);

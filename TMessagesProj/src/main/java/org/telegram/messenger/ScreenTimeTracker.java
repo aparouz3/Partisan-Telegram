@@ -195,12 +195,31 @@ public class ScreenTimeTracker {
     }
 
     public boolean isTimerVisible(long dialogId) {
+        if (!isGlobalTimerEnabled()) return false;
         return timerPrefs.getBoolean(String.valueOf(dialogId), true);
     }
 
     public boolean toggleTimerVisible(long dialogId) {
-        boolean newVal = !isTimerVisible(dialogId);
+        boolean newVal = !timerPrefs.getBoolean(String.valueOf(dialogId), true);
         setTimerVisible(dialogId, newVal);
+        return newVal;
+    }
+
+    // ===== Global timer toggle =====
+
+    private static final String GLOBAL_TIMER_KEY = "global_timer_enabled";
+
+    public boolean isGlobalTimerEnabled() {
+        return timerPrefs.getBoolean(GLOBAL_TIMER_KEY, true);
+    }
+
+    public void setGlobalTimerEnabled(boolean enabled) {
+        timerPrefs.edit().putBoolean(GLOBAL_TIMER_KEY, enabled).apply();
+    }
+
+    public boolean toggleGlobalTimer() {
+        boolean newVal = !isGlobalTimerEnabled();
+        setGlobalTimerEnabled(newVal);
         return newVal;
     }
 

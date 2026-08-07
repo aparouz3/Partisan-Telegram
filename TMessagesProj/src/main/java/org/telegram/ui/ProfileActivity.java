@@ -670,6 +670,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private int userInfoRow;
     private int channelInfoRow;
     private int usernameRow;
+    private int screenTimeRow;
     private int notificationsDividerRow;
     private int notificationsRow;
     private int chatIdRow;
@@ -10610,6 +10611,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         locationRow = -1;
         channelInfoRow = -1;
         usernameRow = -1;
+        screenTimeRow = -1;
         settingsTimerRow = -1;
         settingsKeyRow = -1;
         notificationsDividerRow = -1;
@@ -10817,6 +10819,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 if (user != null && username != null) {
                     usernameRow = rowCount++;
                 }
+                screenTimeRow = rowCount++;
                 if (userInfo != null) {
                     if (userInfo.birthday != null) {
                         birthdayRow = rowCount++;
@@ -10980,6 +10983,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 if (ChatObject.isPublic(currentChat)) {
                     usernameRow = rowCount++;
                 }
+                screenTimeRow = rowCount++;
             }
             if (emptyRow < 0 && emptyRow2 < 0) {
                 if (hasMusic || peerColor != null || actionsView == null) {
@@ -13816,6 +13820,11 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         } else if (currentChat != null) {
                             detailCell.setTextAndValue(String.valueOf(getDialogId()), LocaleController.getString("ChatId", R.string.ChatId), false);
                         }
+                    } else if (position == screenTimeRow) {
+                        long dialogId = getDialogId();
+                        long todayMs = org.telegram.messenger.ScreenTimeTracker.getInstance().getChatTimeToday(dialogId);
+                        String timeStr = org.telegram.messenger.ScreenTimeTracker.formatDuration(todayMs);
+                        detailCell.setTextAndValue(timeStr, "Screen time today", false);
                     }
                     if (containsGift) {
                         Drawable drawable = ContextCompat.getDrawable(detailCell.getContext(), R.drawable.msg_input_gift);
@@ -14516,7 +14525,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             if (position == infoHeaderRow || position == membersHeaderRow || position == settingsSectionRow2 ||
                     position == numberSectionRow || position == helpHeaderRow || position == debugHeaderRow || position == botPermissionsHeader) {
                 return VIEW_TYPE_HEADER;
-            } else if (position == phoneRow || position == locationRow || position == numberRow || position == birthdayRow || position == chatIdRow) {
+            } else if (position == phoneRow || position == locationRow || position == numberRow || position == birthdayRow || position == chatIdRow || position == screenTimeRow) {
                 return VIEW_TYPE_TEXT_DETAIL;
             } else if (position == usernameRow || position == setUsernameRow) {
                 return VIEW_TYPE_TEXT_DETAIL_MULTILINE;
