@@ -293,34 +293,34 @@ public class ScreenTimeActivity extends BaseFragment {
             int items = (data == null ? 0 : data.size());
             int itemsEnd = offset + (items == 0 ? 1 : items);
             if (position == 0) return 0; // Total header
-            if (position == 1) return 1; // Description
-            if (position == 2) return 2; // "By Chat" header
+            if (position == 1) return 10; // global timer toggle (moved to top for visibility)
+            if (position == 2) return 1; // Description
+            if (position == 3) return 2; // "By Chat" header
             if (position == offset && items == 0) return 4; // empty state
             if (position >= offset && position < itemsEnd) return 3; // chat row
-            if (position == itemsEnd) return 10; // global timer toggle
-            if (position == itemsEnd + 1) return 1; // section desc
-            if (position == itemsEnd + 2) return 5; // bar chart header
-            if (position == itemsEnd + 3) return 6; // bar chart
-            if (position == itemsEnd + 4) return 7; // bar chart desc
-            if (position == itemsEnd + 5) return 5; // hourly header
-            if (position == itemsEnd + 6) return 8; // hourly chart
-            if (position == itemsEnd + 7) return 7; // hourly desc
-            if (position == itemsEnd + 8) return 5; // box plot header
-            if (position == itemsEnd + 9) return 9; // box plot chart
-            if (position == itemsEnd + 10) return 7; // box plot desc
+            if (position == itemsEnd) return 1; // section desc
+            if (position == itemsEnd + 1) return 5; // bar chart header
+            if (position == itemsEnd + 2) return 6; // bar chart
+            if (position == itemsEnd + 3) return 7; // bar chart desc
+            if (position == itemsEnd + 4) return 5; // hourly header
+            if (position == itemsEnd + 5) return 8; // hourly chart
+            if (position == itemsEnd + 6) return 7; // hourly desc
+            if (position == itemsEnd + 7) return 5; // box plot header
+            if (position == itemsEnd + 8) return 9; // box plot chart
+            if (position == itemsEnd + 9) return 7; // box plot desc
             return 0;
         }
 
         @Override
         public int getItemCount() {
             int items = (data == null ? 0 : data.size());
-            int chatSection = 3 + (items == 0 ? 1 : items) + 1; // +1 for global toggle
-            int chartSection = 11;
+            int chatSection = 4 + (items == 0 ? 1 : items); // 4 = total header + toggle + desc + "By Chat" header
+            int chartSection = 10;
             return chatSection + chartSection;
         }
 
         public int getItemsStartOffset() {
-            return 3;
+            return 4;
         }
 
         @Override
@@ -388,7 +388,7 @@ public class ScreenTimeActivity extends BaseFragment {
                 cell.setTextAndValue("Show timer in chat list", globalTimer ? "On" : "Off", true);
             } else if (type == 5) {
                 int items = (data == null ? 0 : data.size());
-                int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items) + 1;
+                int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items);
                 if (position == itemsEnd + 1) {
                     ((HeaderCell) holder.itemView).setText("Time per Chat");
                 } else if (position == itemsEnd + 4) {
@@ -404,15 +404,21 @@ public class ScreenTimeActivity extends BaseFragment {
                 ((BoxPlotContainer) holder.itemView).setData(boxPlot);
             } else if (type == 7) {
                 int items = (data == null ? 0 : data.size());
-                int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items) + 1;
-                if (position == itemsEnd) {
-                    ((TextInfoPrivacyCell) holder.itemView).setText("Tap any chat to set a daily time limit or toggle the live timer. You'll get a notification when the limit is reached.");
-                } else if (position == itemsEnd + 3) {
+                int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items);
+                if (position == itemsEnd + 2) {
                     ((TextInfoPrivacyCell) holder.itemView).setText("Bar chart comparing screen time across all chats today.");
-                } else if (position == itemsEnd + 6) {
+                } else if (position == itemsEnd + 5) {
                     ((TextInfoPrivacyCell) holder.itemView).setText("Screen time per hour of the day. Helps identify peak usage times.");
-                } else if (position == itemsEnd + 9) {
+                } else if (position == itemsEnd + 8) {
                     ((TextInfoPrivacyCell) holder.itemView).setText("Distribution of screen time across active hours. The box shows Q1–Q3 with the median marked in red. Whiskers show min and max.");
+                }
+            } else if (type == 1) {
+                int items = (data == null ? 0 : data.size());
+                int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items);
+                if (position == 2) {
+                    ((TextInfoPrivacyCell) holder.itemView).setText("Tap any chat to set a daily time limit. You'll get a notification when the limit is reached.");
+                } else if (position == itemsEnd) {
+                    ((TextInfoPrivacyCell) holder.itemView).setText("Tap any chat to set a daily time limit or toggle the live timer.");
                 }
             }
         }
@@ -526,7 +532,7 @@ public class ScreenTimeActivity extends BaseFragment {
 
         public BarChartContainer(Context context) {
             super(context);
-            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(4));
+            setPadding(0, 0, 0, 0);
             setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
             chartView = new BarChartView(context);
             addView(chartView);
@@ -544,15 +550,17 @@ public class ScreenTimeActivity extends BaseFragment {
                 MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
             );
+            int pad = AndroidUtilities.dp(16);
             chartView.measure(
-                MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(32), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(w - pad * 2, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(8), MeasureSpec.EXACTLY)
             );
         }
 
         @Override
         protected void onLayout(boolean changed, int l, int t, int r, int b) {
-            chartView.layout(0, AndroidUtilities.dp(4), getWidth(), getHeight() - AndroidUtilities.dp(4));
+            int pad = AndroidUtilities.dp(16);
+            chartView.layout(pad, AndroidUtilities.dp(4), getWidth() - pad, getHeight() - AndroidUtilities.dp(4));
         }
     }
 
@@ -665,7 +673,7 @@ public class ScreenTimeActivity extends BaseFragment {
 
         public HourlyChartContainer(Context context) {
             super(context);
-            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(4));
+            setPadding(0, 0, 0, 0);
             setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
             chartView = new HourlyChartView(context);
             addView(chartView);
@@ -683,15 +691,17 @@ public class ScreenTimeActivity extends BaseFragment {
                 MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
             );
+            int pad = AndroidUtilities.dp(16);
             chartView.measure(
-                MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(32), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(w - pad * 2, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(8), MeasureSpec.EXACTLY)
             );
         }
 
         @Override
         protected void onLayout(boolean changed, int l, int t, int r, int b) {
-            chartView.layout(0, AndroidUtilities.dp(4), getWidth(), getHeight() - AndroidUtilities.dp(4));
+            int pad = AndroidUtilities.dp(16);
+            chartView.layout(pad, AndroidUtilities.dp(4), getWidth() - pad, getHeight() - AndroidUtilities.dp(4));
         }
     }
 
@@ -803,7 +813,7 @@ public class ScreenTimeActivity extends BaseFragment {
 
         public BoxPlotContainer(Context context) {
             super(context);
-            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(4));
+            setPadding(0, 0, 0, 0);
             setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
             boxPlotView = new BoxPlotView(context);
             addView(boxPlotView);
@@ -824,8 +834,9 @@ public class ScreenTimeActivity extends BaseFragment {
                 MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
             );
             if (boxPlotView != null) {
+                int pad = AndroidUtilities.dp(16);
                 boxPlotView.measure(
-                    MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(32), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(w - pad * 2, MeasureSpec.EXACTLY),
                     MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(8), MeasureSpec.EXACTLY)
                 );
             }
@@ -834,7 +845,8 @@ public class ScreenTimeActivity extends BaseFragment {
         @Override
         protected void onLayout(boolean changed, int l, int t, int r, int b) {
             if (boxPlotView != null) {
-                boxPlotView.layout(0, AndroidUtilities.dp(4), getWidth(), getHeight() - AndroidUtilities.dp(4));
+                int pad = AndroidUtilities.dp(16);
+                boxPlotView.layout(pad, AndroidUtilities.dp(4), getWidth() - pad, getHeight() - AndroidUtilities.dp(4));
             }
         }
     }

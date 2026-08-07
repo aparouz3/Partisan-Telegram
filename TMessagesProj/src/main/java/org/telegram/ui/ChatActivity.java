@@ -516,6 +516,8 @@ public class ChatActivity extends BaseFragment implements
         @Override
         public void run() {
             updateScreenTimeTitle();
+            // Check if limit reached (triggers in-app notification)
+            org.telegram.messenger.ScreenTimeTracker.getInstance().checkLimitLive(dialog_id);
             AndroidUtilities.runOnUIThread(this, 1000);
         }
     };
