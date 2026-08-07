@@ -301,7 +301,7 @@ public class ScreenTimeTracker {
     }
 
     /**
-     * Short format for inline display: "1h 5m" or "5m" or "30s"
+     * Short format for inline display: "HH:MM:SS" or "MM:SS"
      */
     public static String formatDurationShort(long ms) {
         long totalSeconds = ms / 1000;
@@ -309,11 +309,9 @@ public class ScreenTimeTracker {
         long minutes = (totalSeconds % 3600) / 60;
         long seconds = totalSeconds % 60;
         if (hours > 0) {
-            return hours + "h " + minutes + "m";
-        } else if (minutes > 0) {
-            return minutes + "m";
+            return String.format("%d:%02d:%02d", hours, minutes, seconds);
         } else {
-            return seconds + "s";
+            return String.format("%d:%02d", minutes, seconds);
         }
     }
 

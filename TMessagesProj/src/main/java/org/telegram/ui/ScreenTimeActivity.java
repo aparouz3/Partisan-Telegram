@@ -65,9 +65,9 @@ public class ScreenTimeActivity extends BaseFragment {
     private long[] hourlyTotal;
     private long[] boxPlot;
 
-    private BarChartView barChartView;
-    private LinearBarChartView hourlyChartView;
-    private BoxPlotView boxPlotView;
+    // Cached chart data so we can re-bind when RecyclerView recycles views
+    private ScreenTimeChartData cachedBarData;
+    private ScreenTimeChartData cachedHourlyData;
 
     // Live timer update runnable
     private final Runnable updateTimerRunnable = new Runnable() {
@@ -147,14 +147,9 @@ public class ScreenTimeActivity extends BaseFragment {
         }
         hourlyTotal = tracker.getHourlyDistribution();
         boxPlot = tracker.getHourlyBoxPlot();
-        if (adapter != null) {
-            adapter.notifyDataSetChanged();
-        }
-        updateCharts();
-    }
 
-    private void updateCharts() {
-        if (barChartView != null && data != null && !data.isEmpty()) {
+        // Pre-compute chart data so it's ready when chart views are bound
+        if (data != null && !data.isEmpty()) {
             int n = data.size();
             long[] x = new long[n];
             long[] y = new long[n];
@@ -163,12 +158,12 @@ public class ScreenTimeActivity extends BaseFragment {
                 y[i] = data.get(i)[1];
             }
             int color = Theme.getColor(Theme.key_windowBackgroundWhiteBlueText);
-            ScreenTimeChartData chartData = new ScreenTimeChartData(x, y, color, "screen_time", false);
-            barChartView.setData(chartData);
-            barChartView.pickerDelegate.set(0f, 1f);
+            cachedBarData = new ScreenTimeChartData(x, y, color, "screen_time", false);
+        } else {
+            cachedBarData = null;
         }
 
-        if (hourlyChartView != null && hourlyTotal != null) {
+        if (hourlyTotal != null) {
             long[] x = new long[24];
             long[] y = new long[24];
             for (int i = 0; i < 24; i++) {
@@ -176,13 +171,13 @@ public class ScreenTimeActivity extends BaseFragment {
                 y[i] = hourlyTotal[i];
             }
             int color = Theme.getColor(Theme.key_windowBackgroundWhiteBlueText);
-            ScreenTimeChartData chartData = new ScreenTimeChartData(x, y, color, "hourly", true);
-            hourlyChartView.setData(chartData);
-            hourlyChartView.pickerDelegate.set(0f, 1f);
+            cachedHourlyData = new ScreenTimeChartData(x, y, color, "hourly", true);
+        } else {
+            cachedHourlyData = null;
         }
 
-        if (boxPlotView != null) {
-            boxPlotView.setData(boxPlot);
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
         }
     }
 
@@ -377,49 +372,19 @@ public class ScreenTimeActivity extends BaseFragment {
                     view = new HeaderCell(context, getResourceProvider());
                     break;
                 case 6:
-                    barChartView = new BarChartView(context);
-                    view = wrapChartView(barChartView);
+                    view = new ChartContainer(context, ChartContainer.TYPE_BAR);
                     break;
                 case 8:
-                    hourlyChartView = new LinearBarChartView(context);
-                    view = wrapChartView(hourlyChartView);
+                    view = new ChartContainer(context, ChartContainer.TYPE_HOURLY);
                     break;
                 case 9:
-                    boxPlotView = new BoxPlotView(context);
-                    view = wrapChartView(boxPlotView);
+                    view = new BoxPlotContainer(context);
                     break;
                 case 7:
                 default:
                     view = new TextInfoPrivacyCell(context);
             }
             return new RecyclerView.ViewHolder(view) {};
-        }
-
-        private View wrapChartView(View chart) {
-            FrameLayout container = new FrameLayout(context) {
-                @Override
-                protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-                    int w = MeasureSpec.getSize(widthMeasureSpec);
-                    int h = AndroidUtilities.dp(240);
-                    super.onMeasure(
-                        MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
-                        MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
-                    );
-                    chart.measure(
-                        MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(32), MeasureSpec.EXACTLY),
-                        MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(16), MeasureSpec.EXACTLY)
-                    );
-                }
-                @Override
-                protected void onLayout(boolean changed, int l, int t, int r, int b) {
-                    chart.layout(AndroidUtilities.dp(16), AndroidUtilities.dp(8),
-                        getWidth() - AndroidUtilities.dp(16), getHeight() - AndroidUtilities.dp(8));
-                }
-            };
-            container.setPadding(0, AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4));
-            container.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-            container.addView(chart);
-            return container;
         }
 
         @Override
@@ -448,6 +413,12 @@ public class ScreenTimeActivity extends BaseFragment {
                 } else if (position == itemsEnd + 7) {
                     ((HeaderCell) holder.itemView).setText("Usage Spread");
                 }
+            } else if (type == 6) {
+                ((ChartContainer) holder.itemView).setData(cachedBarData);
+            } else if (type == 8) {
+                ((ChartContainer) holder.itemView).setData(cachedHourlyData);
+            } else if (type == 9) {
+                ((BoxPlotContainer) holder.itemView).setData(boxPlot);
             } else if (type == 7) {
                 int items = (data == null ? 0 : data.size());
                 int itemsEnd = getItemsStartOffset() + (items == 0 ? 1 : items);
@@ -460,6 +431,109 @@ public class ScreenTimeActivity extends BaseFragment {
                 } else if (position == itemsEnd + 9) {
                     ((TextInfoPrivacyCell) holder.itemView).setText("Distribution of screen time across active hours. The box shows Q1–Q3 with the median marked in red. Whiskers show min and max.");
                 }
+            }
+        }
+    }
+
+    // --- Chart container that holds its own chart view and can be re-bound ---
+    private class ChartContainer extends FrameLayout {
+        static final int TYPE_BAR = 0;
+        static final int TYPE_HOURLY = 1;
+
+        private final int chartType;
+        private BarChartView barChartView;
+        private LinearBarChartView hourlyChartView;
+
+        public ChartContainer(Context context, int chartType) {
+            super(context);
+            this.chartType = chartType;
+            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(4));
+            setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+
+            if (chartType == TYPE_BAR) {
+                barChartView = new BarChartView(context);
+                addView(barChartView);
+            } else {
+                hourlyChartView = new LinearBarChartView(context);
+                addView(hourlyChartView);
+            }
+        }
+
+        public void setData(ScreenTimeChartData chartData) {
+            if (chartData == null) return;
+            if (chartType == TYPE_BAR && barChartView != null) {
+                barChartView.setData(chartData);
+                barChartView.pickerDelegate.set(0f, 1f);
+            } else if (chartType == TYPE_HOURLY && hourlyChartView != null) {
+                hourlyChartView.setData(chartData);
+                hourlyChartView.pickerDelegate.set(0f, 1f);
+            }
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int w = MeasureSpec.getSize(widthMeasureSpec);
+            int h = AndroidUtilities.dp(240);
+            super.onMeasure(
+                MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
+            );
+            View chart = chartType == TYPE_BAR ? barChartView : hourlyChartView;
+            if (chart != null) {
+                chart.measure(
+                    MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(0), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(8), MeasureSpec.EXACTLY)
+                );
+            }
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            View chart = chartType == TYPE_BAR ? barChartView : hourlyChartView;
+            if (chart != null) {
+                chart.layout(0, AndroidUtilities.dp(4), getWidth(), getHeight() - AndroidUtilities.dp(4));
+            }
+        }
+    }
+
+    // --- Box plot container ---
+    private class BoxPlotContainer extends FrameLayout {
+        private BoxPlotView boxPlotView;
+
+        public BoxPlotContainer(Context context) {
+            super(context);
+            setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(4));
+            setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+            boxPlotView = new BoxPlotView(context);
+            addView(boxPlotView);
+        }
+
+        public void setData(long[] data) {
+            if (boxPlotView != null) {
+                boxPlotView.setData(data);
+            }
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int w = MeasureSpec.getSize(widthMeasureSpec);
+            int h = AndroidUtilities.dp(220);
+            super.onMeasure(
+                MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)
+            );
+            if (boxPlotView != null) {
+                boxPlotView.measure(
+                    MeasureSpec.makeMeasureSpec(w - AndroidUtilities.dp(0), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(h - AndroidUtilities.dp(8), MeasureSpec.EXACTLY)
+                );
+            }
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            if (boxPlotView != null) {
+                boxPlotView.layout(0, AndroidUtilities.dp(4), getWidth(), getHeight() - AndroidUtilities.dp(4));
             }
         }
     }
@@ -499,7 +573,14 @@ public class ScreenTimeActivity extends BaseFragment {
             valueText.setGravity(Gravity.RIGHT);
             addView(valueText, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.RIGHT, 0, 4, 0, 0));
 
-            progressView = new View(context);
+            progressView = new View(context) {
+                @Override
+                public void setScaleX(float scale) {
+                    // Scale from left edge, not center
+                    setPivotX(0);
+                    super.setScaleX(scale);
+                }
+            };
             progressView.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText));
             addView(progressView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 3, Gravity.TOP | Gravity.LEFT, 52, 24, 0, 0));
 
@@ -555,7 +636,7 @@ public class ScreenTimeActivity extends BaseFragment {
             boolean timerVisible = ScreenTimeTracker.getInstance().isTimerVisible(dialogId);
             if (timerVisible) {
                 long liveMs = ScreenTimeTracker.getInstance().getLiveChatTime(dialogId);
-                valueText.setText(ScreenTimeTracker.formatDurationShort(liveMs));
+                valueText.setText(ScreenTimeTracker.formatDuration(liveMs));
             }
         }
     }

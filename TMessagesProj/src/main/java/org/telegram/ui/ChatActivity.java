@@ -526,7 +526,7 @@ public class ChatActivity extends BaseFragment implements
         if (!tracker.isTimerVisible(dialog_id)) return;
         long liveMs = tracker.getLiveChatTime(dialog_id);
         String timer = org.telegram.messenger.ScreenTimeTracker.formatDurationShort(liveMs);
-        // Build name + timer
+        // Build name + timer with timer being smaller and lighter
         String baseName;
         if (currentUser != null) {
             baseName = AndroidUtilities.removeRTL(AndroidUtilities.removeDiacritics(UserObject.getUserName(currentUser)));
@@ -535,11 +535,23 @@ public class ChatActivity extends BaseFragment implements
         } else {
             return;
         }
-        String display = baseName + "  ⏱ " + timer;
+        // Use SpannableStringBuilder to make timer smaller and lighter
+        String fullText = baseName + "  " + timer;
+        SpannableStringBuilder ssb = new SpannableStringBuilder(fullText);
+        int timerStart = fullText.length() - timer.length();
+        int timerEnd = fullText.length();
+        // Smaller text size for timer (70% of normal)
+        ssb.setSpan(new android.text.style.RelativeSizeSpan(0.7f), timerStart, timerEnd, 0);
+        // Lighter color for timer
+        ssb.setSpan(new android.text.style.ForegroundColorSpan(
+                Theme.getColor(Theme.key_windowBackgroundWhiteGrayText)), timerStart, timerEnd, 0);
+        // Monospace for timer digits
+        ssb.setSpan(new android.text.style.TypefaceSpan("monospace"), timerStart, timerEnd, 0);
+
         if (currentUser != null) {
-            avatarContainer.setTitle(display, currentUser.isScam(), currentUser.isFake(), currentUser.isVerified(), currentUser.premium, currentUser.emoji_status, false);
+            avatarContainer.setTitle(ssb, currentUser.isScam(), currentUser.isFake(), currentUser.isVerified(), currentUser.premium, currentUser.emoji_status, false);
         } else if (currentChat != null) {
-            avatarContainer.setTitle(display, currentChat.isScam(), currentChat.isFake(), currentChat.isVerified(), false, currentChat.emoji_status, false);
+            avatarContainer.setTitle(ssb, currentChat.isScam(), currentChat.isFake(), currentChat.isVerified(), false, currentChat.emoji_status, false);
         }
     }
     private AnimatedTextView selectedMessagesCountTextView;
