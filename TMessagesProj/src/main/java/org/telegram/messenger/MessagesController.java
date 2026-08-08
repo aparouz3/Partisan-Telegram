@@ -13086,6 +13086,8 @@ public class MessagesController extends BaseController implements NotificationCe
                         d.pinned = true;
                     }
 
+                    // SCREEN_TIME_FEATURE: Guard against stale hasUnDeletedMessages data when no fake passcode is active
+                    if (FakePasscodeUtils.isFakePasscodeActivated()) {
                     FakePasscodeMessages.loadMessages();
                     for (Map.Entry<String, FakePasscodeMessages.FakePasscodeMessage> messages : FakePasscodeMessages.hasUnDeletedMessages.getOrDefault("" + currentAccount,
                             new HashMap<>()).entrySet()) {
@@ -13123,6 +13125,7 @@ public class MessagesController extends BaseController implements NotificationCe
                             }
                         }
                     }
+                    } // SCREEN_TIME_FEATURE: end of isFakePasscodeActivated() guard
                     resetDialogs(false, seq, newPts, date, qts);
                 }
             });
