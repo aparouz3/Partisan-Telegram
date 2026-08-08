@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import org.telegram.messenger.fakepasscode.FakePasscodeUtils;
+import org.telegram.messenger.partisan.PartisanLog;
 import org.telegram.messenger.partisan.SecurityIssue;
 import org.telegram.messenger.partisan.Utils;
 import org.telegram.tgnet.ConnectionsManager;
