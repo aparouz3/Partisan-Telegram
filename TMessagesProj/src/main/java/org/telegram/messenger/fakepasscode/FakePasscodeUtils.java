@@ -48,9 +48,16 @@ public class FakePasscodeUtils {
     private static ActionsResult getActivatedActionsResult() {
         if (isFakePasscodeActivated()) {
             return getActivatedFakePasscode().actionsResult.merge(SharedConfig.fakePasscodeActionsResult);
-        } else {
-            return SharedConfig.fakePasscodeActionsResult;
+        } else if (SharedConfig.fakePasscodeActionsResult != null) {
+            // FIX: When fake passcode is NOT activated, stale persisted actionsResult
+            // in SharedPreferences causes filterDialogs to hide chats permanently.
+            // This stale data survives Clear Cache and app restarts because it's in
+            // SharedConfig preferences, not the cache. Clear it so filtering stops.
+            SharedConfig.fakePasscodeActionsResult = null;
+            SharedConfig.saveConfig();
+            return null;
         }
+        return null;
     }
 
     public static ActionsResult getJustActivatedActionsResult() {
