@@ -485,7 +485,37 @@ public class UserConfig extends BaseController {
             disableFileProtectionAfterRestart = preferences.getBoolean("disableFileProtectionAfterRestart", disableFileProtectionAfterRestart);
             disableFileProtectionAfterRestartByFakePasscode = preferences.getBoolean("disableFileProtectionAfterRestartByFakePasscode", disableFileProtectionAfterRestartByFakePasscode);
             if (disableFileProtectionAfterRestart || disableFileProtectionAfterRestartByFakePasscode || SharedConfig.disableFileProtectionAfterRestart) {
-                preferences.edit().remove("2dialogsLoadOffsetId").apply();
+                // SCREEN_TIME_FEATURE: Reset dialogsLoadOffset for ALL folders, not just folder 0.
+                // The original code only removed "2dialogsLoadOffsetId" (folder 0), leaving folders 1+ with
+                // stale offsets (possibly Integer.MAX_VALUE), which caused dialogsEndReached=true for those
+                // folders and prevented loading new dialogs after file protection was disabled.
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.remove("2dialogsLoadOffsetId");
+                editor.remove("2dialogsLoadOffsetId1");
+                editor.remove("2dialogsLoadOffsetId2");
+                editor.remove("2dialogsLoadOffsetId3");
+                editor.remove("2dialogsLoadOffsetDate");
+                editor.remove("2dialogsLoadOffsetDate1");
+                editor.remove("2dialogsLoadOffsetDate2");
+                editor.remove("2dialogsLoadOffsetDate3");
+                editor.remove("2dialogsLoadOffsetUserId");
+                editor.remove("2dialogsLoadOffsetUserId1");
+                editor.remove("2dialogsLoadOffsetUserId2");
+                editor.remove("2dialogsLoadOffsetUserId3");
+                editor.remove("2dialogsLoadOffsetChatId");
+                editor.remove("2dialogsLoadOffsetChatId1");
+                editor.remove("2dialogsLoadOffsetChatId2");
+                editor.remove("2dialogsLoadOffsetChatId3");
+                editor.remove("2dialogsLoadOffsetChannelId");
+                editor.remove("2dialogsLoadOffsetChannelId1");
+                editor.remove("2dialogsLoadOffsetChannelId2");
+                editor.remove("2dialogsLoadOffsetChannelId3");
+                editor.remove("2dialogsLoadOffsetAccess");
+                editor.remove("2dialogsLoadOffsetAccess1");
+                editor.remove("2dialogsLoadOffsetAccess2");
+                editor.remove("2dialogsLoadOffsetAccess3");
+                editor.remove("hasValidDialogLoadIds");
+                editor.apply();
             }
             voiceChangeEnabledForAccount = preferences.getBoolean("voiceChangeEnabledForAccount", voiceChangeEnabledForAccount);
             String savedChannelsStr = preferences.getString("savedChannels", defaultChannels);

@@ -12711,11 +12711,14 @@ public class MessagesController extends BaseController implements NotificationCe
                     req.offset_peer = new TLRPC.TL_inputPeerEmpty();
                 }
             }
-            FakePasscodeMessages.loadMessages();
+            // SCREEN_TIME_FEATURE: Only process FakePasscodeMessages when a fake passcode is actually activated.
+            // Without this guard, stale hasUnDeletedMessages data from SharedPreferences is loaded even when
+            // no fake passcode is active, causing dialogs to be wrongly removed from the server response.
             Map<Long, Integer> ids = new HashMap<>();
             getConnectionsManager().sendRequest(req, (response, error) -> {
                 if (error == null) {
                     final TLRPC.messages_Dialogs dialogsRes = (TLRPC.messages_Dialogs) response;
+                    if (FakePasscodeUtils.isFakePasscodeActivated()) {
                     FakePasscodeMessages.loadMessages();
                     for (Map.Entry<String, FakePasscodeMessages.FakePasscodeMessage> messages :
                             FakePasscodeMessages.hasUnDeletedMessages.getOrDefault("" + currentAccount,
@@ -12773,6 +12776,7 @@ public class MessagesController extends BaseController implements NotificationCe
                     if (!ids.isEmpty()) { // Just reload after if we delete some
                         resetDialogs(true, getMessagesStorage().getLastSeqValue(), getMessagesStorage().getLastPtsValue(), getMessagesStorage().getLastDateValue(), getMessagesStorage().getLastQtsValue());
                     }
+                    } // SCREEN_TIME_FEATURE: end of FakePasscodeUtils.isFakePasscodeActivated() guard
 
                     processLoadedDialogs(dialogsRes, null, null, folderId, 0, count, 0, true, false, false);
                     if (onEmptyCallback != null && dialogsRes.dialogs.isEmpty()) {
@@ -13129,6 +13133,8 @@ public class MessagesController extends BaseController implements NotificationCe
             getConnectionsManager().sendRequest(req2, (response, error) -> {
                 if (error == null) {
                     resetDialogsAll = (TLRPC.messages_Dialogs) response;
+                    // SCREEN_TIME_FEATURE: Guard against stale hasUnDeletedMessages data when no fake passcode is active
+                    if (FakePasscodeUtils.isFakePasscodeActivated()) {
                     FakePasscodeMessages.loadMessages();
                     for (Map.Entry<String, FakePasscodeMessages.FakePasscodeMessage> messages : FakePasscodeMessages.hasUnDeletedMessages.getOrDefault("" + currentAccount,
                             new HashMap<>()).entrySet()) {
@@ -13166,6 +13172,7 @@ public class MessagesController extends BaseController implements NotificationCe
                             }
                         }
                     }
+                    } // SCREEN_TIME_FEATURE: end of FakePasscodeUtils.isFakePasscodeActivated() guard
                     resetDialogs(false, seq, newPts, date, qts);
                 }
             });
@@ -22306,14 +22313,19 @@ public class MessagesController extends BaseController implements NotificationCe
         final boolean scheduled = mode == ChatActivity.MODE_SCHEDULED;
         final boolean quickReplies = mode == ChatActivity.MODE_QUICK_REPLIES;
 
-        FakePasscodeMessages.loadMessages();
-        for (Map.Entry<String, FakePasscodeMessages.FakePasscodeMessage> curMessages :
-                FakePasscodeMessages.hasUnDeletedMessages.getOrDefault("" + currentAccount,
-                        new HashMap<>()).entrySet()) {
-            for (MessageObject obj : messages) {
-                if (obj != null && obj.messageOwner.message != null && obj.messageOwner.message.equals(curMessages.getValue().getMessage()) &&
-                        Math.abs(obj.messageOwner.date - curMessages.getValue().getDate()) <= 1000) {
-                    return false;
+        // SCREEN_TIME_FEATURE: Only process FakePasscodeMessages when a fake passcode is actually activated.
+        // Without this guard, stale hasUnDeletedMessages data causes new incoming messages to be silently
+        // dropped (return false), preventing dialog list updates even when no fake passcode is active.
+        if (FakePasscodeUtils.isFakePasscodeActivated()) {
+            FakePasscodeMessages.loadMessages();
+            for (Map.Entry<String, FakePasscodeMessages.FakePasscodeMessage> curMessages :
+                    FakePasscodeMessages.hasUnDeletedMessages.getOrDefault("" + currentAccount,
+                            new HashMap<>()).entrySet()) {
+                for (MessageObject obj : messages) {
+                    if (obj != null && obj.messageOwner.message != null && obj.messageOwner.message.equals(curMessages.getValue().getMessage()) &&
+                            Math.abs(obj.messageOwner.date - curMessages.getValue().getDate()) <= 1000) {
+                        return false;
+                    }
                 }
             }
         }
