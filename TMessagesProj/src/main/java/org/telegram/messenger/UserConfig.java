@@ -842,11 +842,18 @@ public class UserConfig extends BaseController {
             editor.remove("2dialogsLoadOffsetChatId" + suffix);
             editor.remove("2dialogsLoadOffsetChannelId" + suffix);
             editor.remove("2dialogsLoadOffsetAccess" + suffix);
-            editor.remove("2totalDialogsLoadCount" + suffix);
+            // Set to 0 (not remove) so completeDialogsReset's auto-continue condition
+            // (totalDialogsLoadCount < 400) evaluates to true and triggers loadDialogs()
+            editor.putInt("2totalDialogsLoadCount" + suffix, 0);
         }
-        editor.remove("hasValidDialogLoadIds");
-        editor.apply();
-        PartisanLog.d("Cleared all dialogsLoadOffsets to force full re-sync from server");
+        // Keep hasValidDialogLoadIds = true so getDialogLoadOffsets returns offset_id = 0
+        // (start from beginning) instead of -1 (which would skip auto-continue in
+        // completeDialogsReset: "dialogsLoadOffsetId != -1 && != MAX_VALUE" fails when -1)
+        editor.putBoolean("hasValidDialogLoadIds", true);
+        editor.commit();
+        // Also update in-memory field to take effect immediately
+        hasValidDialogLoadIds = true;
+        PartisanLog.d("Reset dialogsLoadOffsets to start from beginning (offset_id=0, totalDialogsLoadCount=0)");
     }
 
     public void setShowCallsTab(boolean show) {
