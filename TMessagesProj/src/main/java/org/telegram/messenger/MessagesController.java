@@ -12959,6 +12959,22 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public void forceResetDialogs() {
+        // SCREEN_TIME_FEATURE / stale offset fix:
+        // The dialogsLoadOffset (persisted "last loaded position") can become stale
+        // after remove-chats actions or other events. This causes loadDialogs to
+        // always request starting from a recent offset_id, resulting in only the
+        // newest few chats loading, and older chats (e.g. from May 13) never appearing.
+        // Force-clear offsets + end markers so the next sync starts from the true beginning.
+        getUserConfig().clearDialogsLoadOffsets();
+        dialogsEndReached.clear();
+        serverDialogsEndReached.clear();
+        dialogsLoadedTillDate = Integer.MAX_VALUE;
+        // Also clear any stale fake message tracking that could interfere
+        if (!FakePasscodeUtils.isFakePasscodeActivated()) {
+            FakePasscodeMessages.hasUnDeletedMessages.clear();
+            FakePasscodeMessages.saveMessages();
+        }
+
         resetDialogs(true, getMessagesStorage().getLastSeqValue(), getMessagesStorage().getLastPtsValue(), getMessagesStorage().getLastDateValue(), getMessagesStorage().getLastQtsValue());
         getNotificationsController().deleteAllNotificationChannels();
     }

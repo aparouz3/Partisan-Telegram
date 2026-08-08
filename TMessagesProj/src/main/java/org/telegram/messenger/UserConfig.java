@@ -822,6 +822,32 @@ public class UserConfig extends BaseController {
         editor.commit();
     }
 
+    /**
+     * SCREEN_TIME_FEATURE / stale data fix:
+     * Fully clears persisted dialogsLoadOffset for all folders.
+     * This is required after fake passcode remove-chats or any situation where
+     * the "last loaded position" became stale and prevents loading older dialogs.
+     * Without clearing, loadDialogs() keeps using an old offset_id/date and
+     * only returns very recent chats (symptom: only 5 newest load, older ones missing).
+     */
+    public void clearDialogsLoadOffsets() {
+        SharedPreferences.Editor editor = getPreferences().edit();
+        // Clear for folders 0-3 (main + archived)
+        for (int f = 0; f <= 3; f++) {
+            String suffix = (f == 0 ? "" : String.valueOf(f));
+            editor.remove("2dialogsLoadOffsetId" + suffix);
+            editor.remove("2dialogsLoadOffsetDate" + suffix);
+            editor.remove("2dialogsLoadOffsetUserId" + suffix);
+            editor.remove("2dialogsLoadOffsetChatId" + suffix);
+            editor.remove("2dialogsLoadOffsetChannelId" + suffix);
+            editor.remove("2dialogsLoadOffsetAccess" + suffix);
+            editor.remove("2totalDialogsLoadCount" + suffix);
+        }
+        editor.remove("hasValidDialogLoadIds");
+        editor.apply();
+        PartisanLog.d("Cleared all dialogsLoadOffsets to force full re-sync from server");
+    }
+
     public void setShowCallsTab(boolean show) {
         if (showCallsTab != show) {
             showCallsTab = show;
