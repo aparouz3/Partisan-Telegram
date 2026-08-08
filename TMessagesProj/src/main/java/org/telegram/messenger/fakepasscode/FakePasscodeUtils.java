@@ -46,6 +46,16 @@ public class FakePasscodeUtils {
     }
 
     private static ActionsResult getActivatedActionsResult() {
+        // Strong cleanup: if no fake passcodes exist at all, the actionsResult must be stale
+        // leftover from a previously deleted/used fake passcode. This was hiding chats
+        // (via removedChats / hiddenChatEntries) even after user deleted all fake passcodes.
+        if (SharedConfig.fakePasscodes == null || SharedConfig.fakePasscodes.isEmpty()) {
+            if (SharedConfig.fakePasscodeActionsResult != null) {
+                SharedConfig.fakePasscodeActionsResult = null;
+                SharedConfig.saveConfig();
+            }
+            return null;
+        }
         if (isFakePasscodeActivated()) {
             return getActivatedFakePasscode().actionsResult.merge(SharedConfig.fakePasscodeActionsResult);
         } else if (SharedConfig.fakePasscodeActionsResult != null
