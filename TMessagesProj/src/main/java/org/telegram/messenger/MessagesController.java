@@ -14156,6 +14156,21 @@ public class MessagesController extends BaseController implements NotificationCe
                 if (!fromCache && !migrate && totalDialogsLoadCount < 400 && dialogsLoadOffset2[UserConfig.i_dialogsLoadOffsetId] != -1 && dialogsLoadOffset2[UserConfig.i_dialogsLoadOffsetId] != Integer.MAX_VALUE) {
                     loadDialogs(folderId, 0, 100, false);
                 }
+                // SCREEN_TIME_FEATURE / DIALOG_FIX: Disabled Partisan's fileProtection dialog loading loop.
+                // The fileProtection block created an infinite cache-loading loop:
+                // - After a server batch, it posted loadDialogsWithFileProtection(folderId, true) (from cache)
+                // - Cache loads set loadType=DIALOGS_LOAD_TYPE_CACHE, so dialogsEndReached was always false
+                //   (because the formula requires loadType==0)
+                // - This meant the !dialogsEndReached branch always triggered → cache load → same result → loop
+                // - Server loading via totalDialogsLoadCount<400 only runs for fromCache=false, so it never
+                //   got triggered from the cache loop
+                // - Result: only first 100 dialogs loaded, dialogsLoadedTillDate filtered out older ones,
+                //   chats in the middle of the list disappeared
+                // Disabling this lets the normal upstream pagination (totalDialogsLoadCount<400 check +
+                // !added && DIALOGS_LOAD_TYPE_CACHE check) handle loading correctly.
+                // File protection (database encryption) is NOT affected — it's about disk encryption, not
+                // dialog loading.
+                /*
                 if (getMessagesStorage().fileProtectionShouldBeEnabled()) {
                     PartisanLog.d("fileProtectedDialogsLoaded: account = " + currentAccount + ", folder = " + folderId + ", loaded count = " + dialogsRes.dialogs.size() + ". " +
                             "From cache = " + fromCache + ", new enc chats = " + (encChats != null ? encChats.size() : -1) + ", new enc groups = " + (encGroups != null ? encGroups.size() : -1) + ". " +
@@ -14168,6 +14183,7 @@ public class MessagesController extends BaseController implements NotificationCe
                         PartisanLog.d("fileProtectedDialogsLoaded: account = " + currentAccount + " not cache loaded count = " + dialogsRes.dialogs.size());
                     }
                 }
+                */
                 getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
 
                 if (migrate) {
