@@ -14189,6 +14189,22 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             });
         }
 
+        // SCREEN_TIME_FEATURE / DIALOG_FIX: "Reload All Chats" button.
+        // Forces a full dialog reload from server (clears stale pagination state).
+        // Fixes: chats invisible in list after re-login (messages exist but list entries missing).
+        io.addGap();
+        io.add(R.drawable.msg_retry, getString(R.string.ReloadAllChats), () -> {
+            AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
+            builder.setTitle(getString(R.string.ReloadAllChats));
+            builder.setMessage(getString(R.string.ReloadAllChatsAlert));
+            builder.setPositiveButton(getString(R.string.OK), (dialog, which) -> {
+                getMessagesController().forceResetDialogs();
+                BulletinFactory.of(this).createSimpleBulletin(R.raw.contact_check, getString(R.string.ReloadAllChatsStarted)).show();
+            });
+            builder.setNegativeButton(getString(R.string.Cancel), null);
+            showDialog(builder.create());
+        });
+
         if (proxyMenuSubItem != null) {
             proxyMenuSubItem.subtextView.setTextColor(getThemedColor(Theme.key_groupcreate_sectionText));
             proxyMenuSubItem.setOnClickListener(v -> {

@@ -162,6 +162,9 @@
     <string name="SetEmojiStatus">Set Emoji Status</string>
     <string name="ChangeEmojiStatus">Change Status</string>
     <string name="Settings">Settings</string>
+    <string name="ReloadAllChats">Reload All Chats</string>
+    <string name="ReloadAllChatsAlert">This will reload all chats from the server. Your messages will not be deleted. This can fix chats that are missing from the list.</string>
+    <string name="ReloadAllChatsStarted">Reloading chats from server…</string>
     <string name="Refresh">Refresh</string>
     <string name="AddressPlaceholder">Search %s or type URL</string>
     <string name="Contacts">Contacts</string>
