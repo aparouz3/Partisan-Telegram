@@ -30,6 +30,8 @@ public class ScreenTimeTracker {
     private long currentDialogId = 0;
     private long currentStartTime = 0;
     private boolean tracking = false;
+    private boolean otherTracking = false;
+    private long otherStartTime = 0;
 
     private final Set<Long> alreadyAlerted = new HashSet<>();
 
@@ -68,6 +70,11 @@ public class ScreenTimeTracker {
     }
 
     public void onChatResumed(long dialogId) {
+        // Pause "other" tracking if active (user entered a chat)
+        if (otherTracking) {
+            flushOther();
+            otherTracking = false;
+        }
         flushCurrent();
         currentDialogId = dialogId;
         currentStartTime = System.currentTimeMillis();
@@ -78,6 +85,78 @@ public class ScreenTimeTracker {
         flushCurrent();
         tracking = false;
         currentDialogId = 0;
+        // When chat is paused, user returns to non-chat UI → start "other" tracking
+        onOtherResumed();
+    }
+
+    // ===== Other (non-chat) screen time tracking =====
+    // Called when the app is in foreground but user is NOT in a chat
+    // (e.g. dialog list, settings, profile, etc.)
+
+    public void onOtherResumed() {
+        // If chat tracking was active, flush it first
+        if (tracking) {
+            flushCurrent();
+            tracking = false;
+            currentDialogId = 0;
+        }
+        if (!otherTracking) {
+            otherTracking = true;
+            otherStartTime = System.currentTimeMillis();
+        }
+    }
+
+    public void onOtherPaused() {
+        flushOther();
+        otherTracking = false;
+    }
+
+    private void flushOther() {
+        if (otherTracking && otherStartTime > 0) {
+            long now = System.currentTimeMillis();
+            long elapsed = now - otherStartTime;
+            if (elapsed > 0 && elapsed < 86400000L) {
+                String key = todayKey() + "_other";
+                long existing = prefs.getLong(key, 0);
+                prefs.edit().putLong(key, existing + elapsed).apply();
+                // Distribute across hours too
+                recordHourlyOther(otherStartTime, now, elapsed);
+            }
+        }
+        otherStartTime = System.currentTimeMillis();
+    }
+
+    private void recordHourlyOther(long start, long end, long elapsed) {
+        SharedPreferences.Editor editor = prefs.edit();
+        int startHour = Integer.parseInt(new SimpleDateFormat("HH", Locale.US).format(new Date(start)));
+        int endHour = Integer.parseInt(new SimpleDateFormat("HH", Locale.US).format(new Date(end)));
+        if (startHour == endHour) {
+            editor.putLong(hourTotalKey(startHour), prefs.getLong(hourTotalKey(startHour), 0) + elapsed);
+        } else {
+            long remaining = elapsed;
+            long cur = start;
+            while (remaining > 0 && cur < end) {
+                int hour = Integer.parseInt(new SimpleDateFormat("HH", Locale.US).format(new Date(cur)));
+                long hourEnd = (cur / 3600000L + 1) * 3600000L;
+                long chunk = Math.min(remaining, hourEnd - cur);
+                if (chunk > 0) {
+                    editor.putLong(hourTotalKey(hour), prefs.getLong(hourTotalKey(hour), 0) + chunk);
+                    remaining -= chunk;
+                    cur += chunk;
+                } else {
+                    break;
+                }
+            }
+        }
+        editor.apply();
+    }
+
+    public long getOtherTimeToday() {
+        flushOther();
+        if (otherTracking && otherStartTime > 0) {
+            return prefs.getLong(todayKey() + "_other", 0) + (System.currentTimeMillis() - otherStartTime);
+        }
+        return prefs.getLong(todayKey() + "_other", 0);
     }
 
     private void flushCurrent() {
@@ -242,6 +321,7 @@ public class ScreenTimeTracker {
 
     public long getTodayTotal() {
         flushCurrent();
+        flushOther();
         long total = 0;
         for (String key : prefs.getAll().keySet()) {
             if (key.startsWith(todayKey() + "_") && !key.contains("_hour") && !key.contains("_h")) {
@@ -253,6 +333,7 @@ public class ScreenTimeTracker {
 
     public List<long[]> getTodayPerChat() {
         flushCurrent();
+        flushOther();
         String prefix = todayKey() + "_";
         List<long[]> list = new ArrayList<>();
         for (String key : prefs.getAll().keySet()) {
@@ -275,6 +356,7 @@ public class ScreenTimeTracker {
      */
     public long[] getHourlyDistribution() {
         flushCurrent();
+        flushOther();
         long[] hours = new long[24];
         for (int h = 0; h < 24; h++) {
             hours[h] = prefs.getLong(hourTotalKey(h), 0);
@@ -305,18 +387,26 @@ public class ScreenTimeTracker {
         return new long[]{min, q1, median, q3, max};
     }
 
+    // LRI/RLI/PFI Unicode marks to isolate Latin/number runs in RTL context,
+    // preventing bidi reordering from scrambling "1h 5m" into "h1 5m" etc.
+    private static final String LRI = "\u2066";  // LEFT-TO-RIGHT ISOLATE
+    private static final String PDI = "\u2069";   // POP DIRECTIONAL ISOLATE
+
     public static String formatDuration(long ms) {
         long totalSeconds = ms / 1000;
         long hours = totalSeconds / 3600;
         long minutes = (totalSeconds % 3600) / 60;
         long seconds = totalSeconds % 60;
+        String result;
         if (hours > 0) {
-            return hours + "h " + minutes + "m";
+            result = hours + "h " + minutes + "m";
         } else if (minutes > 0) {
-            return minutes + "m " + seconds + "s";
+            result = minutes + "m " + seconds + "s";
         } else {
-            return seconds + "s";
+            result = seconds + "s";
         }
+        // Wrap in LRI/PDI so the entire "1h 5m" stays LTR inside RTL text
+        return LRI + result + PDI;
     }
 
     /**
@@ -327,11 +417,13 @@ public class ScreenTimeTracker {
         long hours = totalSeconds / 3600;
         long minutes = (totalSeconds % 3600) / 60;
         long seconds = totalSeconds % 60;
+        String result;
         if (hours > 0) {
-            return String.format("%d:%02d:%02d", hours, minutes, seconds);
+            result = String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds);
         } else {
-            return String.format("%d:%02d", minutes, seconds);
+            result = String.format(Locale.US, "%d:%02d", minutes, seconds);
         }
+        return LRI + result + PDI;
     }
 
     public void resetToday() {
@@ -344,5 +436,7 @@ public class ScreenTimeTracker {
         }
         editor.apply();
         alreadyAlerted.clear();
+        otherTracking = false;
+        otherStartTime = 0;
     }
 }

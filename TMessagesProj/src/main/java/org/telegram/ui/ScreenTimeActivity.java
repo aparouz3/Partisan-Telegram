@@ -54,6 +54,8 @@ import java.util.List;
 
 public class ScreenTimeActivity extends BaseFragment {
 
+    private static final long OTHER_DIALOG_ID = Long.MIN_VALUE + 1; // special ID for "Other" (non-chat) time
+
     private RecyclerListView listView;
     private ListAdapter adapter;
     private List<long[]> data;
@@ -106,7 +108,9 @@ public class ScreenTimeActivity extends BaseFragment {
                 int idx = position - adapter.getItemsStartOffset();
                 if (data != null && idx >= 0 && idx < data.size()) {
                     long[] entry = data.get(idx);
-                    showLimitDialog(entry[0]);
+                    if (entry[0] != OTHER_DIALOG_ID) {
+                        showLimitDialog(entry[0]);
+                    }
                 }
             } else if (type == 10) {
                 // Toggle global timer
@@ -138,6 +142,13 @@ public class ScreenTimeActivity extends BaseFragment {
     private void refreshData() {
         ScreenTimeTracker tracker = ScreenTimeTracker.getInstance();
         data = tracker.getTodayPerChat();
+        // Add "Other" entry to the list (sorted by time)
+        long otherMs = tracker.getOtherTimeToday();
+        if (otherMs > 1000) {
+            data.add(new long[]{OTHER_DIALOG_ID, otherMs});
+            // Re-sort by time descending
+            data.sort((a, b) -> Long.compare(b[1], a[1]));
+        }
         maxTime = 1;
         if (data != null) {
             for (long[] entry : data) {
@@ -171,6 +182,9 @@ public class ScreenTimeActivity extends BaseFragment {
     }
 
     private String getChatName(long dialogId) {
+        if (dialogId == OTHER_DIALOG_ID) {
+            return "Other";
+        }
         TLRPC.User user = getUser(dialogId);
         if (user != null) {
             return UserObject.getUserName(user);
@@ -485,39 +499,54 @@ public class ScreenTimeActivity extends BaseFragment {
             nameText.setText(name);
             valueText.setText(ScreenTimeTracker.formatDuration(ms));
 
-            TLRPC.User user = getUser(dialogId);
-            TLRPC.Chat chat = getChat(dialogId);
-            if (user != null) {
-                avatarDrawable.setInfo(getCurrentAccount(), user);
-                avatarImageView.setForUserOrChat(user, avatarDrawable);
-            } else if (chat != null) {
-                avatarDrawable.setInfo(getCurrentAccount(), chat);
-                avatarImageView.setForUserOrChat(chat, avatarDrawable);
-            }
-
-            float ratio = maxMs > 0 ? (float) ms / maxMs : 0;
-            progressView.setScaleX(Math.max(0.02f, ratio));
-
-            long limit = ScreenTimeTracker.getInstance().getLimit(dialogId);
-            if (limit > 0) {
-                limitText.setVisibility(View.VISIBLE);
-                String limitStr = "Limit: " + ScreenTimeTracker.formatDuration(limit);
-                if (ms >= limit) {
-                    limitText.setTextColor(Theme.getColor(Theme.key_text_RedBold));
-                    limitStr += " — Reached!";
-                } else {
-                    limitText.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
-                    long remaining = limit - ms;
-                    limitStr += " (" + ScreenTimeTracker.formatDuration(remaining) + " left)";
-                }
-                limitText.setText(limitStr);
-            } else {
+            if (dialogId == OTHER_DIALOG_ID) {
+                // "Other" row: no avatar, no limit
+                avatarImageView.setVisibility(View.GONE);
                 limitText.setVisibility(View.GONE);
+                float ratio = maxMs > 0 ? (float) ms / maxMs : 0;
+                progressView.setScaleX(Math.max(0.02f, ratio));
+            } else {
+                avatarImageView.setVisibility(View.VISIBLE);
+                TLRPC.User user = getUser(dialogId);
+                TLRPC.Chat chat = getChat(dialogId);
+                if (user != null) {
+                    avatarDrawable.setInfo(getCurrentAccount(), user);
+                    avatarImageView.setForUserOrChat(user, avatarDrawable);
+                } else if (chat != null) {
+                    avatarDrawable.setInfo(getCurrentAccount(), chat);
+                    avatarImageView.setForUserOrChat(chat, avatarDrawable);
+                }
+
+                float ratio = maxMs > 0 ? (float) ms / maxMs : 0;
+                progressView.setScaleX(Math.max(0.02f, ratio));
+
+                long limit = ScreenTimeTracker.getInstance().getLimit(dialogId);
+                if (limit > 0) {
+                    limitText.setVisibility(View.VISIBLE);
+                    String limitStr = "Limit: " + ScreenTimeTracker.formatDuration(limit);
+                    if (ms >= limit) {
+                        limitText.setTextColor(Theme.getColor(Theme.key_text_RedBold));
+                        limitStr += " — Reached!";
+                    } else {
+                        limitText.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
+                        long remaining = limit - ms;
+                        limitStr += " (" + ScreenTimeTracker.formatDuration(remaining) + " left)";
+                    }
+                    limitText.setText(limitStr);
+                } else {
+                    limitText.setVisibility(View.GONE);
+                }
             }
         }
 
         public void updateLiveTime() {
             if (dialogId == 0) return;
+            if (dialogId == OTHER_DIALOG_ID) {
+                // Show live "Other" time if app is in foreground and not in a chat
+                long liveMs = ScreenTimeTracker.getInstance().getOtherTimeToday();
+                valueText.setText(ScreenTimeTracker.formatDuration(liveMs));
+                return;
+            }
             if (ScreenTimeTracker.getInstance().isTimerVisible(dialogId)) {
                 long liveMs = ScreenTimeTracker.getInstance().getLiveChatTime(dialogId);
                 valueText.setText(ScreenTimeTracker.formatDuration(liveMs));
