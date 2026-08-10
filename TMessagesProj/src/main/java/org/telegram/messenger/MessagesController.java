@@ -13415,12 +13415,19 @@ public class MessagesController extends BaseController implements NotificationCe
                     allDialogs.add(dialog);
                 }
                 sortDialogs(null);
-                dialogsEndReached.put(0, true);
+                // SCREEN_TIME_FEATURE / DIALOG_FIX: Set dialogsEndReached=false after reset.
+                // Original code set this to true, which stopped pagination. When totalDialogsLoadCount
+                // was already >= 400 (accumulated from previous sessions), the auto-continue check
+                // (totalDialogsLoadCount < 400) failed AND scroll-based pagination also failed
+                // (because dialogsEndReached=true blocked it). Result: only the pivot batch survived,
+                // all older chats disappeared. Setting false lets scroll-based loadDialogs continue.
+                dialogsEndReached.put(0, false);
                 serverDialogsEndReached.put(0, false);
 
-                dialogsEndReached.put(1, true);
+                dialogsEndReached.put(1, false);
                 serverDialogsEndReached.put(1, false);
 
+                // Use the count set by MessagesStorage.resetDialogs (reset, not accumulated)
                 int totalDialogsLoadCount = getUserConfig().getTotalDialogsCount(0);
                 long[] dialogsLoadOffset = getUserConfig().getDialogLoadOffsets(0);
                 if (totalDialogsLoadCount < 400 && dialogsLoadOffset[UserConfig.i_dialogsLoadOffsetId] != -1 && dialogsLoadOffset[UserConfig.i_dialogsLoadOffsetId] != Integer.MAX_VALUE) {

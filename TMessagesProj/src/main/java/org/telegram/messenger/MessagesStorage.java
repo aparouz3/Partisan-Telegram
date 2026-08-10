@@ -4749,15 +4749,17 @@ public class MessagesStorage extends BaseController {
                 putDialogsInternal(dialogsRes, 0);
                 saveDiffParamsInternal(seq, newPts, date, qts);
 
-                int totalDialogsLoadCount = getUserConfig().getTotalDialogsCount(0);
+                // SCREEN_TIME_FEATURE / DIALOG_FIX: Reset totalDialogsLoadCount instead of accumulating.
+                // On differenceTooLong → resetDialogs, the old count was preserved and only incremented.
+                // When it exceeded 400, completeDialogsReset's auto-continue (totalDialogsLoadCount < 400)
+                // never fired, so only the pivot batch survived and older chats disappeared.
+                int totalDialogsLoadCount = dialogsRes.dialogs.size();
                 int dialogsLoadOffsetId;
                 int dialogsLoadOffsetDate;
                 long dialogsLoadOffsetChannelId = 0;
                 long dialogsLoadOffsetChatId = 0;
                 long dialogsLoadOffsetUserId = 0;
                 long dialogsLoadOffsetAccess = 0;
-
-                totalDialogsLoadCount += dialogsRes.dialogs.size();
                 dialogsLoadOffsetId = lastMessage.id;
                 dialogsLoadOffsetDate = lastMessage.date;
                 if (lastMessage.peer_id.channel_id != 0) {
